@@ -1,0 +1,50 @@
+name: Test Docker Compose
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types:
+      - opened
+      - synchronize
+
+jobs:
+
+  test-docker-compose:
+    runs-on: ubuntu-latest
+    container:
+      image: codeberg.org/perchpub/perchpub-runner:act-latest
+    env:
+      ENVIRONMENT: staging
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
+      FIRST_SUPERUSER: ${{ secrets.FIRST_SUPERUSER }}
+      FIRST_SUPERUSER_PASSWORD: ${{ secrets.FIRST_SUPERUSER_PASSWORD }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      EMAILS_FROM_EMAIL: ${{ secrets.EMAILS_FROM_EMAIL }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      DOMAIN: ${{ vars.DOMAIN }}
+      FRONTEND_HOST: ${{ vars.FRONTEND_HOST}}
+      BACKEND_CORS_ORIGINS: "*"
+      POSTGRES_USER: ${{ vars.POSTGRES_USER }}
+      PERCHPUB_VOLUME: ${{ vars.PERCHPUB_VOLUME }}
+      DOCKER_IMAGE_BACKEND: ${{ vars.DOCKER_IMAGE_BACKEND }}
+      DOCKER_IMAGE_FRONTEND: ${{ vars.DOCKER_IMAGE_FRONTEND }}
+      POSTGRES_DB: ${{ vars.POSTGRES_DB }}
+      STACK_NAME: ${{ vars.STACK_NAME }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - run: docker compose build
+      - run: docker compose down -v --remove-orphans
+      - run: docker compose up -d --wait backend frontend adminer
+      - name: Test backend is up
+        run: curl http://localhost:8000/api/v1/utils/health-check
+      - name: Test frontend is up
+        run: curl http://localhost:5173
+      - run: docker compose down -v --remove-orphans

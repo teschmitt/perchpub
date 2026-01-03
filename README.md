@@ -1,233 +1,94 @@
-# Full Stack FastAPI Template
+# PerchPub
 
-<a href="https://github.com/fastapi/full-stack-fastapi-template/actions?query=workflow%3A%22Test+Docker+Compose%22" target="_blank"><img src="https://github.com/fastapi/full-stack-fastapi-template/workflows/Test%20Docker%20Compose/badge.svg" alt="Test Docker Compose"></a>
-<a href="https://github.com/fastapi/full-stack-fastapi-template/actions?query=workflow%3A%22Test+Backend%22" target="_blank"><img src="https://github.com/fastapi/full-stack-fastapi-template/workflows/Test%20Backend/badge.svg" alt="Test Backend"></a>
-<a href="https://coverage-badge.samuelcolvin.workers.dev/redirect/fastapi/full-stack-fastapi-template" target="_blank"><img src="https://coverage-badge.samuelcolvin.workers.dev/fastapi/full-stack-fastapi-template.svg" alt="Coverage"></a>
+PerchPub is a self-hosted bird-feeder observation server built on top of [FastAPI](https://github.com/fastapi/fastapi).
 
-## Technology Stack and Features
+The goal of the project is to:
 
-- ⚡ [**FastAPI**](https://fastapi.tiangolo.com) for the Python backend API.
-  - 🧰 [SQLModel](https://sqlmodel.tiangolo.com) for the Python SQL database interactions (ORM).
-  - 🔍 [Pydantic](https://docs.pydantic.dev), used by FastAPI, for the data validation and settings management.
-  - 💾 [PostgreSQL](https://www.postgresql.org) as the SQL database.
-- 🚀 [React](https://react.dev) for the frontend.
-  - 💃 Using TypeScript, hooks, [Vite](https://vitejs.dev), and other parts of a modern frontend stack.
-  - 🎨 [Tailwind CSS](https://tailwindcss.com) and [shadcn/ui](https://ui.shadcn.com) for the frontend components.
-  - 🤖 An automatically generated frontend client.
-  - 🧪 [Playwright](https://playwright.dev) for End-to-End testing.
-  - 🦇 Dark mode support.
-- 🐋 [Docker Compose](https://www.docker.com) for development and production.
-- 🔒 Secure password hashing by default.
-- 🔑 JWT (JSON Web Token) authentication.
-- 📫 Email based password recovery.
-- 📬 [Mailcatcher](https://mailcatcher.me) for local email testing during development.
-- ✅ Tests with [Pytest](https://pytest.org).
-- 📞 [Traefik](https://traefik.io) as a reverse proxy / load balancer.
-- 🚢 Deployment instructions using Docker Compose, including how to set up a frontend Traefik proxy to handle automatic HTTPS certificates.
-- 🏭 CI (continuous integration) and CD (continuous deployment) based on GitHub Actions.
+- Receive photos (and optionally short videos) of birds visiting a feeder.
+- Identify bird species using image recognition.
+- Store and display observations for authenticated users.
+- Optionally publish observations into the Fediverse via ActivityPub (so they can be followed from Mastodon, Pixelfed, etc.).
 
-### Dashboard Login
+The overall system consists of:
 
-[![API docs](img/login.png)](https://github.com/fastapi/full-stack-fastapi-template)
+- **Station software (Raspberry Pi)** – built in a separate project and responsible for capturing media at the feeder and sending it to this server.
+- **PerchPub server (this repository)** – receives uploads, runs image classification, stores observations, and exposes them via an API and web UI.
 
-### Dashboard - Admin
+A link to the Raspberry Pi station project will be added later.
 
-[![API docs](img/dashboard.png)](https://github.com/fastapi/full-stack-fastapi-template)
+## Backend: Observation, Classification, and Sharing
 
-### Dashboard - Items
+This repository contains the backend that powers PerchPub. At a high level, the backend:
 
-[![API docs](img/dashboard-items.png)](https://github.com/fastapi/full-stack-fastapi-template)
+- Exposes an authenticated HTTP API for stations and users.
+- Manages users, API keys, stations, species, and observations in a relational database.
+- Accepts media uploads (images/videos) for each observation.
+- Schedules and tracks classification tasks for uploaded media.
+- Optionally publishes new observations via ActivityPub.
 
-### Dashboard - Dark Mode
+The backend is organized around a few core concepts:
 
-[![API docs](img/dashboard-dark.png)](https://github.com/fastapi/full-stack-fastapi-template)
+- **Users and authentication** – standard user accounts with secure password hashing, JWT-based authentication, and optional email-based flows inherited from the template.
+- **Stations** – registered devices (e.g. Raspberry Pis) that are allowed to upload observations. Stations authenticate using API keys or tokens.
+- **Uploads** – raw media files (images or videos) sent by stations.
+- **Observations** – domain objects that connect an upload with a timestamp, a station, and later a species classification.
+- **Species** – known bird species that can be referenced by observations.
+- **Classification tasks** – background tasks that run image recognition for newly uploaded media and attach the result to an observation.
 
-### Interactive API Documentation
+### API surface
 
-[![API docs](img/docs.png)](https://github.com/fastapi/full-stack-fastapi-template)
+The API is structured into versioned routes under `/api/v1`. It includes endpoints for:
 
-## How To Use It
+- Managing users and authentication flows.
+- Registering and managing stations.
+- Creating uploads and observations from stations.
+- Listing and querying observations and species.
 
-You can **just fork or clone** this repository and use it as is.
+These endpoints are implemented as FastAPI routers under `backend/app/api/routes`.
 
-✨ It just works. ✨
+### Data model
 
-### How to Use a Private Repository
+The data model is implemented using SQLModel and lives under `backend/app/models`. The main models are:
 
-If you want to have a private repository, GitHub won't allow you to simply fork it as it doesn't allow changing the visibility of forks.
+- `User`, `Token`, and related authentication models.
+- `Station` and `Enrollment` for managing devices.
+- `Upload` and `Observation` for media and bird sightings.
+- `Species` for known bird species.
+- `ClassifyTask` for tracking image-recognition jobs.
 
-But you can do the following:
+Migrations are managed with Alembic and are stored under `backend/app/alembic`.
 
-- Create a new GitHub repo, for example `my-full-stack`.
-- Clone this repository manually, set the name with the name of the project you want to use, for example `my-full-stack`:
+### Background processing
 
-```bash
-git clone git@github.com:fastapi/full-stack-fastapi-template.git my-full-stack
-```
+Classification and other non-blocking work is handled via background tasks defined in `backend/app/tasks.py`. These tasks are responsible for:
 
-- Enter into the new directory:
+- Scheduling classification for new uploads.
+- Updating observations with recognition results.
+- Preparing data that can later be sent via ActivityPub.
 
-```bash
-cd my-full-stack
-```
+### ActivityPub and Fediverse integration
 
-- Set the new origin to your new repository, copy it from the GitHub interface, for example:
+PerchPub is intended to optionally publish new observations into the Fediverse:
 
-```bash
-git remote set-url origin git@github.com:octocat/my-full-stack.git
-```
+- New observations can be exposed as ActivityPub activities.
+- Fediverse users (e.g. Mastodon, Pixelfed) can follow the bird feeder as if it were an account.
 
-- Add this repo as another "remote" to allow you to get updates later:
+The details of the ActivityPub integration are experimental and may evolve, but the goal is to make each station or server instance publish a stream of bird sightings.
 
-```bash
-git remote add upstream git@github.com:fastapi/full-stack-fastapi-template.git
-```
+## Built on Full Stack FastAPI Template
 
-- Push the code to your new repository:
+PerchPub uses the Full Stack FastAPI Template as its foundation. That provides:
 
-```bash
-git push -u origin master
-```
+- A FastAPI backend with SQLModel models, authentication, and migrations.
+- A Docker Compose setup for running the stack locally or in production.
+- Built-in testing, email-based password recovery, and reverse proxy configuration.
 
-### Update From the Original Template
+For more detailed technical information about running and developing the backend, see:
 
-After cloning the repository, and after doing changes, you might want to get the latest changes from this original template.
-
-- Make sure you added the original repository as a remote, you can check it with:
-
-```bash
-git remote -v
-
-origin    git@github.com:octocat/my-full-stack.git (fetch)
-origin    git@github.com:octocat/my-full-stack.git (push)
-upstream    git@github.com:fastapi/full-stack-fastapi-template.git (fetch)
-upstream    git@github.com:fastapi/full-stack-fastapi-template.git (push)
-```
-
-- Pull the latest changes without merging:
-
-```bash
-git pull --no-commit upstream master
-```
-
-This will download the latest changes from this template without committing them, that way you can check everything is right before committing.
-
-- If there are conflicts, solve them in your editor.
-
-- Once you are done, commit the changes:
-
-```bash
-git merge --continue
-```
-
-### Configure
-
-You can then update configs in the `.env` files to customize your configurations.
-
-Before deploying it, make sure you change at least the values for:
-
-- `SECRET_KEY`
-- `FIRST_SUPERUSER_PASSWORD`
-- `POSTGRES_PASSWORD`
-
-You can (and should) pass these as environment variables from secrets.
-
-Read the [deployment.md](./deployment.md) docs for more details.
-
-### Generate Secret Keys
-
-Some environment variables in the `.env` file have a default value of `changethis`.
-
-You have to change them with a secret key, to generate secret keys you can run the following command:
-
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
-
-Copy the content and use that as password / secret key. And run that again to generate another secure key.
-
-## How To Use It - Alternative With Copier
-
-This repository also supports generating a new project using [Copier](https://copier.readthedocs.io).
-
-It will copy all the files, ask you configuration questions, and update the `.env` files with your answers.
-
-### Install Copier
-
-You can install Copier with:
-
-```bash
-pip install copier
-```
-
-Or better, if you have [`pipx`](https://pipx.pypa.io/), you can run it with:
-
-```bash
-pipx install copier
-```
-
-**Note**: If you have `pipx`, installing copier is optional, you could run it directly.
-
-### Generate a Project With Copier
-
-Decide a name for your new project's directory, you will use it below. For example, `my-awesome-project`.
-
-Go to the directory that will be the parent of your project, and run the command with your project's name:
-
-```bash
-copier copy https://github.com/fastapi/full-stack-fastapi-template my-awesome-project --trust
-```
-
-If you have `pipx` and you didn't install `copier`, you can run it directly:
-
-```bash
-pipx run copier copy https://github.com/fastapi/full-stack-fastapi-template my-awesome-project --trust
-```
-
-**Note** the `--trust` option is necessary to be able to execute a [post-creation script](https://github.com/fastapi/full-stack-fastapi-template/blob/master/.copier/update_dotenv.py) that updates your `.env` files.
-
-### Input Variables
-
-Copier will ask you for some data, you might want to have at hand before generating the project.
-
-But don't worry, you can just update any of that in the `.env` files afterwards.
-
-The input variables, with their default values (some auto generated) are:
-
-- `project_name`: (default: `"FastAPI Project"`) The name of the project, shown to API users (in .env).
-- `stack_name`: (default: `"fastapi-project"`) The name of the stack used for Docker Compose labels and project name (no spaces, no periods) (in .env).
-- `secret_key`: (default: `"changethis"`) The secret key for the project, used for security, stored in .env, you can generate one with the method above.
-- `first_superuser`: (default: `"admin@example.com"`) The email of the first superuser (in .env).
-- `first_superuser_password`: (default: `"changethis"`) The password of the first superuser (in .env).
-- `smtp_host`: (default: "") The SMTP server host to send emails, you can set it later in .env.
-- `smtp_user`: (default: "") The SMTP server user to send emails, you can set it later in .env.
-- `smtp_password`: (default: "") The SMTP server password to send emails, you can set it later in .env.
-- `emails_from_email`: (default: `"info@example.com"`) The email account to send emails from, you can set it later in .env.
-- `postgres_password`: (default: `"changethis"`) The password for the PostgreSQL database, stored in .env, you can generate one with the method above.
-- `sentry_dsn`: (default: "") The DSN for Sentry, if you are using it, you can set it later in .env.
-
-## Backend Development
-
-Backend docs: [backend/README.md](./backend/README.md).
-
-## Frontend Development
-
-Frontend docs: [frontend/README.md](./frontend/README.md).
-
-## Deployment
-
-Deployment docs: [deployment.md](./deployment.md).
-
-## Development
-
-General development docs: [development.md](./development.md).
-
-This includes using Docker Compose, custom local domains, `.env` configurations, etc.
-
-## Release Notes
-
-Check the file [release-notes.md](./release-notes.md).
+- Backend docs: [backend/README.md](./backend/README.md).
+- Deployment docs: [deployment.md](./deployment.md).
+- General development docs: [development.md](./development.md).
 
 ## License
 
-The Full Stack FastAPI Template is licensed under the terms of the MIT license.
+The project is currently based on the Full Stack FastAPI Template, which is licensed under the terms of the MIT license.

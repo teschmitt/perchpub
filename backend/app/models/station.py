@@ -1,0 +1,52 @@
+"""Station Pydantic schemas."""
+
+import uuid
+
+from sqlmodel import Field, Relationship, SQLModel
+
+from app.models.base import PerchPubBase
+from app.models.user import User, UserPublic
+
+
+class StationBase(SQLModel):
+    """Base station schema with shared fields."""
+
+    latitude: float = Field(ge=-90, le=90, description="Latitude")
+    longitude: float = Field(ge=-180, le=180, description="Longitude")
+
+
+class StationCreate(StationBase):
+    """Schema for creating a new station."""
+
+    pass
+
+
+class Station(PerchPubBase, StationBase, table=True):
+    owner_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=False, ondelete="CASCADE"
+    )
+    owner: User | None = Relationship(back_populates="stations")
+    uploads: list["Upload"] = Relationship(  # noqa: F821 # type: ignore
+        back_populates="station", cascade_delete=True
+    )
+    observations: list["Observation"] = Relationship(  # noqa: F821 # type: ignore
+        back_populates="station", cascade_delete=True
+    )
+
+
+class StationUpdate(StationBase):
+    """Schema for updating a station (all fields optional)."""
+
+    pass
+
+
+class StationPublic(StationBase):
+    """Schema for station response."""
+
+    id: uuid.UUID
+    owner: UserPublic | None
+
+
+class StationsPublic(SQLModel):
+    data: list[StationPublic]
+    count: int

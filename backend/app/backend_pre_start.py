@@ -9,13 +9,13 @@ from app.core.db import engine
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-max_tries = 60 * 5  # 5 minutes
-wait_seconds = 1
+MAX_TRIES = 60 * 5  # 5 minutes
+WAIT_SECONDS = 1
 
 
 @retry(
-    stop=stop_after_attempt(max_tries),
-    wait=wait_fixed(wait_seconds),
+    stop=stop_after_attempt(MAX_TRIES),
+    wait=wait_fixed(WAIT_SECONDS),
     before=before_log(logger, logging.INFO),
     after=after_log(logger, logging.WARN),
 )

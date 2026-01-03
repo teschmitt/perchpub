@@ -37,9 +37,9 @@ class Settings(BaseSettings):
     FRONTEND_HOST: str = "http://localhost:5173"
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
 
-    BACKEND_CORS_ORIGINS: Annotated[
-        list[AnyUrl] | str, BeforeValidator(parse_cors)
-    ] = []
+    BACKEND_CORS_ORIGINS: Annotated[list[AnyUrl] | str, BeforeValidator(parse_cors)] = (
+        []
+    )
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -55,6 +55,30 @@ class Settings(BaseSettings):
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str = ""
     POSTGRES_DB: str = ""
+
+    ENROLLMENT_HMAC_KEY_HEX: str = ""
+
+    GARAGE_BUCKET_NAME: str = "perchpub-bucket"
+    GARAGE_ENDPOINT: str = ""
+    GARAGE_KEY_ID: str = ""
+    GARAGE_SECRET: str = ""
+
+    # step-ca integration and mTLS device settings
+    STEP_CA_URL: str = "http://step-ca:9000"
+    STEP_CA_PROVISIONER_NAME: str = "device-enrollment"
+    STEP_CA_PROVISIONER_KID: str = ""
+    STEP_CA_JWK_PATH: str = "/home/step/provisioners/device-enrollment.jwk"
+
+    MTLS_DEVICE_API_PREFIX: str = "/api/v1/device"
+    MTLS_CLIENT_CERT_HEADER: str = "X-Forwarded-Tls-Client-Cert"
+    DEVICE_CLIENT_CA_CERT_PATH: str = "/etc/perchpub/mtls-ca.pem"
+
+    CLASSIFICATION_MODEL_OBJECT_NAME: str = "birdiary-v0.1/classify.tflite"
+    CLASSIFICATION_LABELS_OBJECT_NAME: str = "birdiary-v0.1/labels.txt"
+
+    HUEY_CLIENT_NAME: str = "perchpub"
+    HUEY_REDIS_HOST: str = "redis"
+    HUEY_REDIS_PORT: int = 6379
 
     @computed_field  # type: ignore[prop-decorator]
     @property

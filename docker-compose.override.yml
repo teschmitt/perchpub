@@ -1,5 +1,9 @@
 services:
 
+  # This override file is intended for local development only.
+  # Production should use only docker-compose.yml (and any prod-specific
+  # files like docker-compose.traefik.yml), without this override.
+  #
   # Local services are available on their ports, but also available on:
   # http://api.localhost.tiangolo.com: backend
   # http://dashboard.localhost.tiangolo.com: frontend
@@ -86,6 +90,15 @@ services:
       SMTP_TLS: "false"
       EMAILS_FROM_EMAIL: "noreply@example.com"
 
+  worker:
+    command:
+      - huey_consumer.py
+      - app.tasks.huey
+      - -k
+      - process
+      - -w
+      - "4"
+
   mailcatcher:
     image: schickling/mailcatcher
     ports:
@@ -126,6 +139,15 @@ services:
       - ./frontend/test-results:/app/test-results
     ports:
       - 9323:9323
+
+  redis:
+    restart: always
+    ports:
+      - 6379:6379
+
+  step-ca:
+    ports:
+      - 9000:9000
 
 networks:
   traefik-public:

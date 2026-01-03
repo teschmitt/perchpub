@@ -4,13 +4,13 @@ services:
     image: postgres:17
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
       interval: 10s
       retries: 5
       start_period: 30s
       timeout: 10s
     volumes:
-      - app-db-data:/var/lib/postgresql/data/pgdata
+      - ${PERCHPUB_VOLUME}/postgres/pgdata:/var/lib/postgresql/data/pgdata
     env_file:
       - .env
     environment:
@@ -87,8 +87,12 @@ services:
         restart: true
       prestart:
         condition: service_completed_successfully
+      redis:
+        condition: service_started
     env_file:
       - .env
+    volumes:
+      - ${PERCHPUB_VOLUME}/step-ca:/home/step-ca:ro
     environment:
       - DOMAIN=${DOMAIN}
       - FRONTEND_HOST=${FRONTEND_HOST?Variable not set}
@@ -108,31 +112,38 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
       - SENTRY_DSN=${SENTRY_DSN}
 
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/utils/health-check/"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-    build:
-      context: ./backend
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=traefik-public
-      - traefik.constraint-label=traefik-public
-
-      - traefik.http.services.${STACK_NAME?Variable not set}-backend.loadbalancer.server.port=8000
-
-      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-http.rule=Host(`api.${DOMAIN?Variable not set}`)
-      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-http.entrypoints=http
-
-      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.rule=Host(`api.${DOMAIN?Variable not set}`)
-      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.entrypoints=https
-      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.tls=true
-      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.tls.certresolver=le
-
-      # Enable redirection for HTTP and HTTPS
-      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-http.middlewares=https-redirect
+  worker:
+    image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
+    restart: always
+    networks:
+      - default
+    depends_on:
+      db:
+        condition: service_healthy
+        restart: true
+      redis:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      # TODO: slim these down as needed
+      - DOMAIN=${DOMAIN}
+      - FRONTEND_HOST=${FRONTEND_HOST?Variable not set}
+      - ENVIRONMENT=${ENVIRONMENT}
+      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS}
+      - SECRET_KEY=${SECRET_KEY?Variable not set}
+      - FIRST_SUPERUSER=${FIRST_SUPERUSER?Variable not set}
+      - FIRST_SUPERUSER_PASSWORD=${FIRST_SUPERUSER_PASSWORD?Variable not set}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - EMAILS_FROM_EMAIL=${EMAILS_FROM_EMAIL}
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER?Variable not set}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
+      - SENTRY_DSN=${SENTRY_DSN}
 
   frontend:
     image: '${DOCKER_IMAGE_FRONTEND?Variable not set}:${TAG-latest}'
@@ -162,10 +173,56 @@ services:
 
       # Enable redirection for HTTP and HTTPS
       - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.middlewares=https-redirect
-volumes:
-  app-db-data:
+
+  #
+  # Storage layout
+  #
+  # Production:
+  #   - Uses host bind mounts rooted at $PERCHPUB_VOLUME (e.g. /mnt/perchpub)
+  #   - Example:
+  #       export PERCHPUB_VOLUME=/mnt/perchpub
+  #       docker compose -f docker-compose.yml up -d
+  #
+  # Development:
+  #   - Uses Docker named volumes, declared in docker-compose.override.yml
+  #   - Example:
+  #       docker compose up
+  #
+  # $PERCHPUB_VOLUME is only used for host bind mounts and is not passed
+  # into containers.
+  #
+
+  blob-storage:
+    image: dxflrs/garage:v2.1.0
+    restart: unless-stopped
+    networks:
+      - default
+    volumes:
+      - ./storage/garage.toml:/etc/garage.toml
+      - ${PERCHPUB_VOLUME}/garage:/var/lib/garage
+
+  redis:
+    image: redis:8-alpine
+    networks:
+      - traefik-public
+      - default
+    volumes:
+      - ${PERCHPUB_VOLUME}/redis:/data
+
+  step-ca:
+    image: smallstep/step-ca:0.29.0
+    restart: always
+    networks:
+      - default
+    volumes:
+      - ${PERCHPUB_VOLUME}/step-ca:/home/step
+    environment:
+      - DOCKER_STEPCA_INIT_NAME=PerchPub CA
+      - DOCKER_STEPCA_INIT_DNS_NAMES=step-ca,localhost
+      - DOCKER_STEPCA_INIT_ADDRESS=:9000
+      - DOCKER_STEPCA_INIT_REMOTE_MANAGEMENT=true
+      - DOCKER_STEPCA_INIT_PROVISIONER_NAME=admin
 
 networks:
   traefik-public:
-    # Allow setting it to false for testing
     external: true

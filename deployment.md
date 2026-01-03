@@ -1,4 +1,4 @@
-# FastAPI Project - Deployment
+# PerchPub - Deployment
 
 You can deploy the project using Docker Compose to a remote server.
 
@@ -12,7 +12,7 @@ But you have to configure a couple things first. 🤓
 
 * Have a remote server ready and available.
 * Configure the DNS records of your domain to point to the IP of the server you just created.
-* Configure a wildcard subdomain for your domain, so that you can have multiple subdomains for different services, e.g. `*.fastapi-project.example.com`. This will be useful for accessing different components, like `dashboard.fastapi-project.example.com`, `api.fastapi-project.example.com`, `traefik.fastapi-project.example.com`, `adminer.fastapi-project.example.com`, etc. And also for `staging`, like `dashboard.staging.fastapi-project.example.com`, `adminer.staging.fastapi-project.example.com`, etc.
+* Configure a wildcard subdomain for your domain, so that you can have multiple subdomains for different services, e.g. `*.perchpub.net`. This will be useful for accessing different components, like `dashboard.perchpub.net`, `api.perchpub.net`, `traefik.perchpub.net`, `adminer.perchpub.net`, etc. And also for `staging`, like `dashboard.staging.perchpub.net`, `adminer.staging.perchpub.net`, etc.
 * Install and configure [Docker](https://docs.docker.com/engine/install/) on the remote server (Docker Engine, not Docker Desktop).
 
 ## Public Traefik
@@ -26,13 +26,13 @@ You need to do these next steps only once.
 * Create a remote directory to store your Traefik Docker Compose file:
 
 ```bash
-mkdir -p /root/code/traefik-public/
+mkdir -p /srv/traefik-public/
 ```
 
 Copy the Traefik Docker Compose file to your server. You could do it by running the command `rsync` in your local terminal:
 
 ```bash
-rsync -a docker-compose.traefik.yml root@your-server.example.com:/root/code/traefik-public/
+rsync -a docker-compose.traefik.yml perchpub.net:/root/code/traefik-public/
 ```
 
 ### Traefik Public Network
@@ -49,58 +49,31 @@ docker network create traefik-public
 
 ### Traefik Environment Variables
 
-The Traefik Docker Compose file expects some environment variables to be set in your terminal before starting it. You can do it by running the following commands in your remote server.
+Create an `.env` file in the same directory as the compose file with the following env variables set:
 
-* Create the username for HTTP Basic Auth, e.g.:
-
-```bash
-export USERNAME=admin
+```
+DOMAIN=perchpub.net
+USERNAME=thomas
+HASHED_PASSWORD='$apr1$....'
+EMAIL=your-email-for-lets-encrypt@...
 ```
 
-* Create an environment variable with the password for HTTP Basic Auth, e.g.:
+Hash your password with `openssl passwd -apr1 $PASSWORD`
 
-```bash
-export PASSWORD=changethis
-```
-
-* Use openssl to generate the "hashed" version of the password for HTTP Basic Auth and store it in an environment variable:
-
-```bash
-export HASHED_PASSWORD=$(openssl passwd -apr1 $PASSWORD)
-```
-
-To verify that the hashed password is correct, you can print it:
-
-```bash
-echo $HASHED_PASSWORD
-```
-
-* Create an environment variable with the domain name for your server, e.g.:
-
-```bash
-export DOMAIN=fastapi-project.example.com
-```
-
-* Create an environment variable with the email for Let's Encrypt, e.g.:
-
-```bash
-export EMAIL=admin@example.com
-```
-
-**Note**: you need to set a different email, an email `@example.com` won't work.
 
 ### Start the Traefik Docker Compose
 
 Go to the directory where you copied the Traefik Docker Compose file in your remote server:
 
 ```bash
-cd /root/code/traefik-public/
+cd /srv/traefik-public/
+mv docker-compose.traefik.yml docker-compose.yml
 ```
 
-Now with the environment variables set and the `docker-compose.traefik.yml` in place, you can start the Traefik Docker Compose running the following command:
+Now with the environment variables set and the `docker-compose.yml` in place, you can start the Traefik Docker Compose running the following command:
 
 ```bash
-docker compose -f docker-compose.traefik.yml up -d
+docker compose up -d
 ```
 
 ## Deploy the FastAPI Project
@@ -122,7 +95,7 @@ export ENVIRONMENT=production
 Set the `DOMAIN`, by default `localhost` (for development), but when deploying you would use your own domain, for example:
 
 ```bash
-export DOMAIN=fastapi-project.example.com
+export DOMAIN=perchpub.net
 ```
 
 You can set several variables, like:
@@ -275,35 +248,120 @@ The current Github Actions workflows expect these secrets:
 
 There are GitHub Action workflows in the `.github/workflows` directory already configured for deploying to the environments (GitHub Actions runners with the labels):
 
-* `staging`: after pushing (or merging) to the branch `master`.
+* `staging`: after pushing (or merging) to the branch `main`.
 * `production`: after publishing a release.
 
 If you need to add extra environments you could use those as a starting point.
 
 ## URLs
 
-Replace `fastapi-project.example.com` with your domain.
-
 ### Main Traefik Dashboard
 
-Traefik UI: `https://traefik.fastapi-project.example.com`
+Traefik UI: `https://traefik.perchpub.net`
 
 ### Production
 
-Frontend: `https://dashboard.fastapi-project.example.com`
-
-Backend API docs: `https://api.fastapi-project.example.com/docs`
-
-Backend API base URL: `https://api.fastapi-project.example.com`
-
-Adminer: `https://adminer.fastapi-project.example.com`
+- Frontend: `https://dashboard.perchpub.net`
+- Backend API docs: `https://api.perchpub.net/docs`
+- Backend API base URL: `https://api.perchpub.net`
+- Adminer: `https://adminer.perchpub.net`
 
 ### Staging
 
-Frontend: `https://dashboard.staging.fastapi-project.example.com`
+- Frontend: `https://dashboard.staging.perchpub.net`
+- Backend API docs: `https://api.staging.perchpub.net/docs`
+- Backend API base URL: `https://api.staging.perchpub.net`
+- Adminer: `https://adminer.staging.perchpub.net`
 
-Backend API docs: `https://api.staging.fastapi-project.example.com/docs`
 
-Backend API base URL: `https://api.staging.fastapi-project.example.com`
+## Setting up Perchpub services
 
-Adminer: `https://adminer.staging.fastapi-project.example.com`
+### Persisting classification data in S3
+
+Models and labels must be made available in the S3 storage. Let Perchpub know where they are through the `CLASSIFICATION_MODEL_OBJECT_NAME` and `CLASSIFICATION_LABELS_OBJECT_NAME` env vars.
+
+### Setting up the CA for mTLS
+
+Certificates need to be created for the station enrollment workflow. Start the `step-ca` service once to create the needed secrets on the server:
+
+```bash
+docker compose up step-ca
+```
+
+This should output some very interesting information, including the admin password. Make sure to save this somethere that is **not** under version control.
+Once it says Serving HTTPS on :9000 ..., you can press Ctrl+C to stop the container. The volume `perchpub_step-ca-config` now contains a valid CA: `/home/step/config/ca.json`, secrets, etc.
+The proceed with the next steps.
+
+On the host, create a JWK keypair for the backend:
+
+```bash
+mkdir -p pki/backend-provisioner
+
+step crypto keypair \
+  pki/backend-provisioner.pub \
+  pki/backend-provisioner.key --kty EC --crv P-256
+```
+
+This yields two JSON JWK files:
+- `backend-provisioner.pub` – public key (safe to give to step-ca).
+- `backend-provisioner.key` – private key (must be kept secret; used by backend only).
+
+Make absolutely sure `backend-provisioner.key` (or a path above it) is in the `.gitignore` so the private key never gets committed.
+
+Copy the public key into the volume and add the provisioner:
+
+```bash
+# copy the public key into the container volume
+cp pki/backend-provisioner.pub /mnt/perchpub-vol-01/step-ca/
+docker compose exec step-ca bash
+# in the container run:
+step ca provisioner add backend-device-enrollment --type JWK --public-key /home/step/backend-provisioner.pub'
+```
+
+It will prompt for the **admin password** (`<ADMIN_PASSWORD>` from step 2). Enter it once.
+
+Verify:
+
+```bash
+step ca provisioner list
+```
+
+You should see both:
+- `admin` (JWK or OIDC depending on init), and
+- `backend-device-enrollment` (JWK) with `key.kid = <some-KID>`.
+
+Note that for this provisioner, step-ca uses the **public JWK only**; it doesn’t store the private key, so there is no `encryptedKey` to decrypt. That’s exactly what we want.
+
+
+#### Wire backend to use the dedicated JWK provisioner
+
+Adjust settings in [`backend/app/core/config.py`](backend/app/core/config.py) and `.env` for the new provisioner:
+
+```python
+STEP_CA_URL: str = "https://step-ca:9000"
+STEP_CA_PROVISIONER_NAME: str = "backend-device-enrollment"
+STEP_CA_PROVISIONER_KID: str = "<kid-from-backend-provisioner.pub>"  # from key JSON
+STEP_CA_JWK_PATH: str = "/etc/perchpub/backend-provisioner.jwk"
+```
+
+Now your existing helper in [`backend/app/ca/step_ca_client.py`](backend/app/ca/step_ca_client.py) can:
+- Load the private JWK from `STEP_CA_JWK_PATH`.
+- Sign JWTs with `kid=STEP_CA_PROVISIONER_KID` and `iss=sub=STEP_CA_PROVISIONER_NAME`.
+- Call `/1.0/sign` on `step-ca` without any `step` CLI or CA admin password.
+
+
+#### Verify end-to-end
+
+1. Backend can sign a CSR:
+   - Write a small script or use your planned enrollment endpoint to send a CSR to `sign_device_csr`.
+   - The helper builds a JWT using the backend JWK and hits `http://step-ca:9000/1.0/sign`.
+   - step-ca accepts the JWT because it matches the `backend-device-enrollment` provisioner’s public JWK.
+
+2. You can still manage the CA and provisioners using:
+
+   ```bash
+   docker compose exec step-ca step ca provisioner list
+   docker compose exec step-ca step ca token admin  # uses admin password interactively
+   ```
+
+   but the backend never needs the admin password.
