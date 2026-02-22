@@ -16,7 +16,9 @@ services:
     ports:
       - "80:80"
       - "8090:8080"
-    # Duplicate the command from docker-compose.yml to add --api.insecure=true
+    env_file:
+      - .env.dev
+      # Duplicate the command from docker-compose.yml to add --api.insecure=true
     command:
       # Enable Docker in Traefik, so that it reads labels from Docker services
       - --providers.docker
@@ -51,16 +53,26 @@ services:
 
   db:
     restart: "no"
+    env_file:
+      - .env.dev
     ports:
       - "5432:5432"
 
   adminer:
     restart: "no"
+    env_file:
+      - .env.dev
     ports:
       - "8080:8080"
 
+  prestart:
+    env_file:
+      - .env.dev
+
   backend:
     restart: "no"
+    env_file:
+      - .env.dev
     ports:
       - "8000:8000"
     build:
@@ -91,6 +103,8 @@ services:
       EMAILS_FROM_EMAIL: "noreply@example.com"
 
   worker:
+    env_file:
+      - .env.dev
     command:
       - huey_consumer.py
       - app.tasks.huey
@@ -101,6 +115,8 @@ services:
 
   mailcatcher:
     image: schickling/mailcatcher
+    env_file:
+      - .env.dev
     ports:
       - "1080:1080"
       - "1025:1025"
@@ -109,6 +125,8 @@ services:
     restart: "no"
     ports:
       - "5173:80"
+    env_file:
+      - .env.dev
     build:
       context: ./frontend
       args:
@@ -127,7 +145,7 @@ services:
       - backend
       - mailcatcher
     env_file:
-      - .env
+      - .env.dev
     environment:
       - VITE_API_URL=http://backend:8000
       - MAILCATCHER_HOST=http://mailcatcher:1080
@@ -142,10 +160,14 @@ services:
 
   redis:
     restart: always
+    env_file:
+      - .env.dev
     ports:
       - 6379:6379
 
   step-ca:
+    env_file:
+      - .env.dev
     ports:
       - 9000:9000
 

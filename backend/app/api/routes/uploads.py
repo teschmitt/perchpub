@@ -15,7 +15,8 @@ from app.models.classify_task import (
     ClassifyTaskStatus,
 )
 from app.models.upload import Upload, UploadCreate
-from app.tasks import classify_video
+
+# from app.tasks import classify_video
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 

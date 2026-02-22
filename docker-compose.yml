@@ -10,9 +10,9 @@ services:
       start_period: 30s
       timeout: 10s
     volumes:
-      - ${PERCHPUB_VOLUME}/postgres/pgdata:/var/lib/postgresql/data/pgdata
+      - pgdata:/var/lib/postgresql/data/pgdata
     env_file:
-      - .env
+      - .env.prod
     environment:
       - PGDATA=/var/lib/postgresql/data/pgdata
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
@@ -27,6 +27,8 @@ services:
       - default
     depends_on:
       - db
+    env_file:
+      - .env.prod
     environment:
       - ADMINER_DESIGN=pepa-linha-dark
     labels:
@@ -55,7 +57,7 @@ services:
         restart: true
     command: bash scripts/prestart.sh
     env_file:
-      - .env
+      - .env.prod
     environment:
       - DOMAIN=${DOMAIN}
       - FRONTEND_HOST=${FRONTEND_HOST?Variable not set}
@@ -90,9 +92,9 @@ services:
       redis:
         condition: service_started
     env_file:
-      - .env
+      - .env.prod
     volumes:
-      - ${PERCHPUB_VOLUME}/step-ca:/home/step-ca:ro
+      - step-ca:/home/step-ca:ro
     environment:
       - DOMAIN=${DOMAIN}
       - FRONTEND_HOST=${FRONTEND_HOST?Variable not set}
@@ -123,8 +125,10 @@ services:
         restart: true
       redis:
         condition: service_started
+      backend:
+        condition: service_started
     env_file:
-      - .env
+      - .env.prod
     environment:
       # TODO: slim these down as needed
       - DOMAIN=${DOMAIN}
@@ -156,6 +160,8 @@ services:
       args:
         - VITE_API_URL=https://api.${DOMAIN?Variable not set}
         - NODE_ENV=production
+    env_file:
+      - .env.prod
     labels:
       - traefik.enable=true
       - traefik.docker.network=traefik-public
@@ -174,54 +180,48 @@ services:
       # Enable redirection for HTTP and HTTPS
       - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.middlewares=https-redirect
 
-  #
-  # Storage layout
-  #
-  # Production:
-  #   - Uses host bind mounts rooted at $PERCHPUB_VOLUME (e.g. /mnt/perchpub)
-  #   - Example:
-  #       export PERCHPUB_VOLUME=/mnt/perchpub
-  #       docker compose -f docker-compose.yml up -d
-  #
-  # Development:
-  #   - Uses Docker named volumes, declared in docker-compose.override.yml
-  #   - Example:
-  #       docker compose up
-  #
-  # $PERCHPUB_VOLUME is only used for host bind mounts and is not passed
-  # into containers.
-  #
-
-  blob-storage:
-    image: dxflrs/garage:v2.1.0
-    restart: unless-stopped
-    networks:
-      - default
-    volumes:
-      - ./storage/garage.toml:/etc/garage.toml
-      - ${PERCHPUB_VOLUME}/garage:/var/lib/garage
+  # blob-storage:
+  #   image: dxflrs/garage:v2.1.0
+  #   restart: unless-stopped
+  #   networks:
+  #     - default
+  #   env_file:
+  #     - .env.prod
+  #   volumes:
+  #     - ./storage/garage.toml:/etc/garage.toml
+  #     - garage:/var/lib/garage
 
   redis:
     image: redis:8-alpine
     networks:
       - traefik-public
       - default
+    env_file:
+      - .env.prod
     volumes:
-      - ${PERCHPUB_VOLUME}/redis:/data
+      - redis:/data
 
   step-ca:
     image: smallstep/step-ca:0.29.0
     restart: always
     networks:
       - default
+    env_file:
+      - .env.prod
     volumes:
-      - ${PERCHPUB_VOLUME}/step-ca:/home/step
+      - step-ca:/home/step
     environment:
       - DOCKER_STEPCA_INIT_NAME=PerchPub CA
       - DOCKER_STEPCA_INIT_DNS_NAMES=step-ca,localhost
       - DOCKER_STEPCA_INIT_ADDRESS=:9000
       - DOCKER_STEPCA_INIT_REMOTE_MANAGEMENT=true
       - DOCKER_STEPCA_INIT_PROVISIONER_NAME=admin
+
+volumes:
+  pgdata:
+  redis:
+  step-ca:
+
 
 networks:
   traefik-public:

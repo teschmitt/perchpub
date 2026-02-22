@@ -1,13 +1,15 @@
+import logging
 import tempfile
 import uuid
 from collections import defaultdict
 
 import cv2 as cv
+import huey
 import numpy as np
 import tensorflow as tf
 from fastapi import HTTPException
 from huey import RedisHuey
-from minio import Minio
+from minio import Minio, S3Error
 from sqlmodel import Session
 
 from app.core.config import settings
@@ -15,46 +17,66 @@ from app.core.db import engine
 from app.models.classify_task import ClassifyTask, ClassifyTaskStatus
 from app.models.observation import Observation, ObservationCreate
 
-huey = RedisHuey(
-    name=settings.HUEY_CLIENT_NAME,
-    host=settings.HUEY_REDIS_HOST,
-    port=settings.HUEY_REDIS_PORT,
-)
 
-garage_client = Minio(
-    endpoint=settings.GARAGE_ENDPOINT,
-    access_key=settings.GARAGE_KEY_ID,
-    secret_key=settings.GARAGE_SECRET,
-    secure=False,
-    region="garage",
-)
+class PerchpubTaskError(Exception):
+    def __init__(self, error_str):
+        self.error_str = error_str
+        super().__init__(f"Error while running a Perchpub task: {self.error_str}")
 
 
-model_content = garage_client.get_object(
-    bucket_name=settings.GARAGE_BUCKET_NAME,
-    object_name=settings.CLASSIFICATION_MODEL_OBJECT_NAME,
-).data
-labels_content = garage_client.get_object(
-    bucket_name=settings.GARAGE_BUCKET_NAME,
-    object_name=settings.CLASSIFICATION_LABELS_OBJECT_NAME,
-).data
+init_successful = False
+try:
+    huey_client = RedisHuey(
+        name=settings.HUEY_CLIENT_NAME,
+        host=settings.HUEY_REDIS_HOST,
+        port=settings.HUEY_REDIS_PORT,
+    )
 
-interpreter = tf.lite.Interpreter(model_content=model_content)
-labels = labels_content.decode("utf-8").split("\n")
+    garage_client = Minio(
+        endpoint=settings.GARAGE_ENDPOINT,
+        access_key=settings.GARAGE_KEY_ID,
+        secret_key=settings.GARAGE_SECRET,
+        secure=False,
+        region="garage",
+    )
 
-interpreter.allocate_tensors()
+    model_content = garage_client.get_object(
+        bucket_name=settings.GARAGE_BUCKET_NAME,
+        object_name=settings.CLASSIFICATION_MODEL_OBJECT_NAME,
+    ).data
+    labels_content = garage_client.get_object(
+        bucket_name=settings.GARAGE_BUCKET_NAME,
+        object_name=settings.CLASSIFICATION_LABELS_OBJECT_NAME,
+    ).data
 
-# Get model details
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
+# this can happen during Huey initialization
+except huey.exceptions.ConfigurationError as e:
+    logging.error(f"Configuration error while setting up huey: {e}")
+# this can happen while initializing Minio
+except ValueError as e:
+    logging.error(f"Initialization error in Minio: {e}")
+# this can happen when trying to access non existent files
+except S3Error as e:
+    logging.error(f"Error while opening classification model data: {e}")
+else:
+    interpreter = tf.lite.Interpreter(model_content=model_content)
+    labels = labels_content.decode("utf-8").split("\n")
 
-height = input_details[0]["shape"][1]
-width = input_details[0]["shape"][2]
+    interpreter.allocate_tensors()
 
-floating_model = input_details[0]["dtype"] == np.float32
+    # Get model details
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
 
-input_mean = 127.5
-input_std = 127.5
+    height = input_details[0]["shape"][1]
+    width = input_details[0]["shape"][2]
+
+    floating_model = input_details[0]["dtype"] == np.float32
+
+    input_mean = 127.5
+    input_std = 127.5
+
+    init_successful = True
 
 
 def classify_image(image_array):
@@ -84,8 +106,12 @@ def classify_image(image_array):
     return result
 
 
-@huey.task()
+@huey_client.task()
 def classify_video(object_name: str, task: ClassifyTask):
+    if not init_successful:
+        raise PerchpubTaskError(
+            "Starting task not possible. There was an error during task runner initialization."
+        )
 
     with Session(engine) as session:
         task.status = ClassifyTaskStatus.Processing
@@ -93,6 +119,7 @@ def classify_video(object_name: str, task: ClassifyTask):
         session.commit()
 
         results = []
+        # download video from S3 to temporary location:
         with tempfile.NamedTemporaryFile(delete_on_close=False) as fp:
             try:
                 _stat = garage_client.fget_object(
