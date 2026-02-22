@@ -1,5 +1,7 @@
 # PerchPub
 
+This is a work in progress. To be clear: nothing works yet and this project is under active development. Submit a PR or an issue if you want to help it along.
+
 PerchPub is a self-hosted bird-feeder observation server built on top of [FastAPI](https://github.com/fastapi/fastapi).
 
 The goal of the project is to:
