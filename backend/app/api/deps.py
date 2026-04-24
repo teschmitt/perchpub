@@ -16,6 +16,10 @@ from app.models import TokenPayload, User
 reusable_oauth2 = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_STR}/login/access-token"
 )
+optional_oauth2 = OAuth2PasswordBearer(
+    tokenUrl=f"{settings.API_V1_STR}/login/access-token",
+    auto_error=False,
+)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -25,9 +29,10 @@ def get_db() -> Generator[Session, None, None]:
 
 SessionDep = Annotated[Session, Depends(get_db)]
 TokenDep = Annotated[str, Depends(reusable_oauth2)]
+OptionalTokenDep = Annotated[str | None, Depends(optional_oauth2)]
 
 
-def get_current_user(session: SessionDep, token: TokenDep) -> User:
+def _resolve_user(session: Session, token: str) -> User:
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]
@@ -46,7 +51,20 @@ def get_current_user(session: SessionDep, token: TokenDep) -> User:
     return user
 
 
+def get_current_user(session: SessionDep, token: TokenDep) -> User:
+    return _resolve_user(session, token)
+
+
+def get_optional_current_user(
+    session: SessionDep, token: OptionalTokenDep
+) -> User | None:
+    if token is None:
+        return None
+    return _resolve_user(session, token)
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
+OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
 
 
 def get_current_active_superuser(current_user: CurrentUser) -> User:

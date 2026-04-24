@@ -1,9 +1,15 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import func, select
+from sqlalchemy.sql.elements import ColumnElement
+from sqlmodel import col, func, or_, select
 
-from app.api.deps import CurrentUser, SessionDep, get_current_active_superuser
+from app.api.deps import (
+    CurrentUser,
+    OptionalCurrentUser,
+    SessionDep,
+    get_current_active_superuser,
+)
 from app.models.station import (
     Station,
     StationCreate,
@@ -11,34 +17,63 @@ from app.models.station import (
     StationsPublic,
     StationUpdate,
 )
+from app.models.user import User
 
 router = APIRouter(prefix="/station", tags=["station"])
 
 
+def _visibility_filter(current_user: User | None) -> ColumnElement[bool] | None:
+    """Return a SQL predicate limiting stations to what `current_user` may see.
+
+    Superusers see every station. Anonymous callers see public stations only.
+    Authenticated non-superusers see public stations plus their own.
+    """
+    if current_user is not None and current_user.is_superuser:
+        return None
+    public_only = col(Station.is_private).is_(False)
+    if current_user is None:
+        return public_only
+    return or_(public_only, Station.owner_id == current_user.id)
+
+
 @router.get("/", response_model=StationsPublic)
 def read_stations(
-    session: SessionDep, skip: int = 0, limit: int = 100
+    session: SessionDep,
+    current_user: OptionalCurrentUser,
+    skip: int = 0,
+    limit: int = 100,
 ) -> StationsPublic:
     """
     Retrieve station.
     """
+    visibility = _visibility_filter(current_user)
 
     count_statement = select(func.count()).select_from(Station)
+    statement = select(Station)
+    if visibility is not None:
+        count_statement = count_statement.where(visibility)
+        statement = statement.where(visibility)
     count = session.exec(count_statement).one()
-    statement = select(Station).offset(skip).limit(limit)
-    stations = session.exec(statement).all()
+    stations = session.exec(statement.offset(skip).limit(limit)).all()
 
     return StationsPublic(data=stations, count=count)
 
 
 @router.get("/{id}", response_model=StationPublic)
-def read_station(session: SessionDep, id: uuid.UUID) -> StationPublic:
+def read_station(
+    session: SessionDep, current_user: OptionalCurrentUser, id: uuid.UUID
+) -> StationPublic:
     """
     Get station by ID.
     """
     station = session.get(Station, id)
     if not station:
         raise HTTPException(status_code=404, detail="Station not found")
+    if station.is_private:
+        is_owner = current_user is not None and station.owner_id == current_user.id
+        is_superuser = current_user is not None and current_user.is_superuser
+        if not (is_owner or is_superuser):
+            raise HTTPException(status_code=404, detail="Station not found")
     return station
 
 

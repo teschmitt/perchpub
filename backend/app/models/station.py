@@ -13,6 +13,10 @@ class StationBase(SQLModel):
 
     latitude: float = Field(ge=-90, le=90, description="Latitude")
     longitude: float = Field(ge=-180, le=180, description="Longitude")
+    is_private: bool = Field(
+        default=False,
+        description="Hide the station from unauthenticated viewers and other users",
+    )
 
 
 class StationCreate(StationBase):
