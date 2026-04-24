@@ -1,9 +1,9 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import func, select
 
-from app.api.deps import SessionDep
+from app.api.deps import SessionDep, get_current_active_superuser
 from app.models.observation import (
     Observation,
     ObservationCreate,
@@ -42,7 +42,11 @@ def read_observation(session: SessionDep, id: uuid.UUID) -> ObservationPublic:
     return observation
 
 
-@router.post("/", response_model=ObservationPublic)
+@router.post(
+    "/",
+    response_model=ObservationPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
 def create_observation(
     *, session: SessionDep, observation_in: ObservationCreate
 ) -> ObservationPublic:
@@ -58,7 +62,11 @@ def create_observation(
     return observation
 
 
-@router.put("/{id}", response_model=ObservationPublic)
+@router.put(
+    "/{id}",
+    response_model=ObservationPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
 def update_observation(
     *,
     session: SessionDep,

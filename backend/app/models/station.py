@@ -5,7 +5,7 @@ import uuid
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.base import PerchPubBase
-from app.models.user import User, UserPublic
+from app.models.user import User
 
 
 class StationBase(SQLModel):
@@ -40,11 +40,18 @@ class StationUpdate(StationBase):
     pass
 
 
+class StationOwnerPublic(SQLModel):
+    """Lean owner projection surfaced on station responses."""
+
+    id: uuid.UUID
+    full_name: str | None = None
+
+
 class StationPublic(StationBase):
     """Schema for station response."""
 
     id: uuid.UUID
-    owner: UserPublic | None
+    owner: StationOwnerPublic | None
 
 
 class StationsPublic(SQLModel):

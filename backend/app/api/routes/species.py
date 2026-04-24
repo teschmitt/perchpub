@@ -1,9 +1,9 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import func, select
 
-from app.api.deps import SessionDep
+from app.api.deps import SessionDep, get_current_active_superuser
 from app.models.species import Species, SpeciesCreate, SpeciesMultiPublic, SpeciesPublic
 
 router = APIRouter(prefix="/species", tags=["species"])
@@ -36,7 +36,11 @@ def read_species(session: SessionDep, id: uuid.UUID) -> SpeciesPublic:
     return species
 
 
-@router.post("/", response_model=SpeciesPublic)
+@router.post(
+    "/",
+    response_model=SpeciesPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
 def create_species(*, session: SessionDep, species_in: SpeciesCreate) -> SpeciesPublic:
     """
     Create new species.

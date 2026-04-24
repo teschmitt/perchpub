@@ -1,9 +1,9 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import func, select
 
-from app.api.deps import CurrentUser, SessionDep
+from app.api.deps import CurrentUser, SessionDep, get_current_active_superuser
 from app.models.station import (
     Station,
     StationCreate,
@@ -58,7 +58,11 @@ def create_station(
     return station
 
 
-@router.put("/{id}", response_model=StationPublic)
+@router.put(
+    "/{id}",
+    response_model=StationPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
 def update_station(
     *,
     session: SessionDep,
