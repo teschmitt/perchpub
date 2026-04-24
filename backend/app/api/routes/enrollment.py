@@ -58,6 +58,11 @@ def enroll_station(
     session: SessionDep, session_id: uuid.UUID, enrollment_req: EnrollmentRequest
 ) -> EnrollmentResponse:
     enrollment_session = session.get(EnrollmentToken, session_id)
+    if enrollment_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Unknown enrollment session",
+        )
 
     # Session is expired
     if enrollment_session.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
