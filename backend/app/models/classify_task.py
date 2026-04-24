@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
-from app.models.observation import Observation
-from app.models.upload import Upload
+from app.models.observation import Observation, ObservationPublic
+from app.models.upload import Upload, UploadPublic
 
 
 class ClassifyTaskStatus(str, enum.Enum):
@@ -61,8 +61,8 @@ class ClassifyTask(ClassifyTaskBase, table=True):
 
 class ClassifyTaskPublic(ClassifyTaskBase):
     id: uuid.UUID
-    upload: Upload
-    observation: Observation | None  # noqa: F821 # type: ignore
+    upload: UploadPublic
+    observation: ObservationPublic | None
 
 
 class ClassifyTasksPublic(SQLModel):

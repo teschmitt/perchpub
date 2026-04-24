@@ -33,6 +33,6 @@ class UploadPublic(PerchPubBase, UploadBase):
     station_id: uuid.UUID
 
 
-class UploadPublic(SQLModel):
+class UploadsPublic(SQLModel):
     data: list[UploadPublic]
     count: int
