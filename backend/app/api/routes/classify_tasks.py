@@ -47,11 +47,11 @@ def read_classify_tasks(
 
 
 @router.get("/{id}", response_model=ClassifyTaskPublic)
-def read_observation(session: SessionDep, id: uuid.UUID) -> ClassifyTaskPublic:
+def read_observation(session: SessionDep, id: uuid.UUID) -> ClassifyTask:
     """
     Get classify task by ID.
     """
-    classify_task = session.get(ClassifyTaskPublic, id)
+    classify_task = session.get(ClassifyTask, id)
     if not classify_task:
         raise HTTPException(status_code=404, detail="Classify task not found")
     return classify_task
