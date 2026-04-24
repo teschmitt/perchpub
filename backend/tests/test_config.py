@@ -1,0 +1,70 @@
+import pytest
+
+from app.core.config import Settings
+
+_BASE_KWARGS = {
+    "PROJECT_NAME": "perchpub-test",
+    "POSTGRES_SERVER": "db",
+    "POSTGRES_USER": "u",
+    "POSTGRES_PASSWORD": "p",
+    "FIRST_SUPERUSER": "admin@example.com",
+    "FIRST_SUPERUSER_PASSWORD": "pw",
+}
+_VALID_HMAC = "d793ba482eb774a6d0d62dc05f5608f5839cc01f6e1160696a937c8613e6d969"
+_VALID_SECRET = "OSuIw3deJ29NfwfZNM4GMta4tdKQpU2ETfK1GB5W50Y"
+
+
+def test_missing_secret_key_fails_in_production() -> None:
+    with pytest.raises(ValueError, match="SECRET_KEY"):
+        Settings(
+            _env_file=None,
+            ENVIRONMENT="production",
+            SECRET_KEY="",
+            ENROLLMENT_HMAC_KEY_HEX=_VALID_HMAC,
+            **_BASE_KWARGS,
+        )
+
+
+def test_missing_hmac_key_fails_in_production() -> None:
+    with pytest.raises(ValueError, match="ENROLLMENT_HMAC_KEY_HEX"):
+        Settings(
+            _env_file=None,
+            ENVIRONMENT="production",
+            SECRET_KEY=_VALID_SECRET,
+            ENROLLMENT_HMAC_KEY_HEX="",
+            **_BASE_KWARGS,
+        )
+
+
+def test_short_hmac_key_fails_in_production() -> None:
+    with pytest.raises(ValueError, match="ENROLLMENT_HMAC_KEY_HEX"):
+        Settings(
+            _env_file=None,
+            ENVIRONMENT="production",
+            SECRET_KEY=_VALID_SECRET,
+            ENROLLMENT_HMAC_KEY_HEX="deadbeef",
+            **_BASE_KWARGS,
+        )
+
+
+def test_non_hex_hmac_key_fails_in_production() -> None:
+    with pytest.raises(ValueError, match="ENROLLMENT_HMAC_KEY_HEX"):
+        Settings(
+            _env_file=None,
+            ENVIRONMENT="production",
+            SECRET_KEY=_VALID_SECRET,
+            ENROLLMENT_HMAC_KEY_HEX="z" * 64,
+            **_BASE_KWARGS,
+        )
+
+
+def test_valid_secrets_load_in_production() -> None:
+    settings = Settings(
+        _env_file=None,
+        ENVIRONMENT="production",
+        SECRET_KEY=_VALID_SECRET,
+        ENROLLMENT_HMAC_KEY_HEX=_VALID_HMAC,
+        **_BASE_KWARGS,
+    )
+    assert settings.SECRET_KEY == _VALID_SECRET
+    assert settings.ENROLLMENT_HMAC_KEY_HEX == _VALID_HMAC

@@ -1,4 +1,3 @@
-import secrets
 import warnings
 from typing import Annotated, Any, Literal
 
@@ -31,7 +30,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
     API_V1_STR: str = "/api/v1"
-    SECRET_KEY: str = secrets.token_urlsafe(32)
+    SECRET_KEY: str = ""
     # 60 minutes * 24 hours * 8 days = 8 days
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8
     FRONTEND_HOST: str = "http://localhost:5173"
@@ -129,12 +128,42 @@ class Settings(BaseSettings):
             else:
                 raise ValueError(message)
 
+    def _check_required_secret(
+        self, var_name: str, value: str, *, hex_length: int | None = None
+    ) -> None:
+        message: str | None = None
+        if not value:
+            message = f"{var_name} is unset; set an explicit value."
+        elif hex_length is not None:
+            if len(value) != hex_length:
+                message = (
+                    f"{var_name} must be {hex_length} hex characters, "
+                    f"got {len(value)}."
+                )
+            else:
+                try:
+                    bytes.fromhex(value)
+                except ValueError:
+                    message = f"{var_name} must be hex-encoded."
+        if message is None:
+            return
+        if self.ENVIRONMENT == "local":
+            warnings.warn(message, stacklevel=1)
+        else:
+            raise ValueError(message)
+
     @model_validator(mode="after")
     def _enforce_non_default_secrets(self) -> Self:
         self._check_default_secret("SECRET_KEY", self.SECRET_KEY)
         self._check_default_secret("POSTGRES_PASSWORD", self.POSTGRES_PASSWORD)
         self._check_default_secret(
             "FIRST_SUPERUSER_PASSWORD", self.FIRST_SUPERUSER_PASSWORD
+        )
+        self._check_required_secret("SECRET_KEY", self.SECRET_KEY)
+        self._check_required_secret(
+            "ENROLLMENT_HMAC_KEY_HEX",
+            self.ENROLLMENT_HMAC_KEY_HEX,
+            hex_length=64,
         )
 
         return self
