@@ -326,6 +326,11 @@ services:
           echo "provisioner backend-device-enrollment created"
         fi
 
+        # rm -f is load-bearing on subsequent runs: the chmod 0440 below
+        # leaves the file owner-read-only, so a bare `> file` redirect
+        # fails with EACCES. Recreating from scratch each run is safe —
+        # the source-of-truth is the encryptedKey in the CA db.
+        rm -f /home/step/backend-provisioner.jwk
         step ca provisioner list \
             --ca-url=https://step-ca:9000 \
             --root=/home/step/certs/root_ca.crt \
