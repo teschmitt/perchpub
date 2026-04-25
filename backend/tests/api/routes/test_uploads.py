@@ -1,5 +1,4 @@
 import io
-import sys
 import uuid
 from unittest.mock import MagicMock, patch
 
@@ -59,10 +58,12 @@ def test_upload_creates_classify_task_and_enqueues(
     fake_garage = MagicMock()
     fake_garage.put_object.return_value = fake_write_result
 
-    tasks_module = sys.modules["app.tasks"]
-    tasks_module.classify_video.reset_mock()
+    fake_classify_video = MagicMock()
 
-    with patch("app.api.routes.uploads.garage_client", fake_garage):
+    with (
+        patch("app.api.routes.uploads.garage_client", fake_garage),
+        patch("app.tasks.classify_video", fake_classify_video),
+    ):
         r = client.post(
             f"{settings.API_V1_STR}/upload/",
             files={"file": ("clip.mp4", payload, "video/mp4")},
@@ -79,8 +80,8 @@ def test_upload_creates_classify_task_and_enqueues(
     assert persisted.status.value == "Prepared"
 
     fake_garage.put_object.assert_called_once()
-    tasks_module.classify_video.assert_called_once()
-    args, _kwargs = tasks_module.classify_video.call_args
+    fake_classify_video.assert_called_once()
+    args, _kwargs = fake_classify_video.call_args
     assert args[0] == fake_write_result.object_name
     assert args[1] == task_id
 
@@ -96,12 +97,12 @@ def test_upload_rejects_oversize_payload(
     fake_garage = MagicMock()
     pre_count = db.exec(select(ClassifyTask)).all()
 
-    tasks_module = sys.modules["app.tasks"]
-    tasks_module.classify_video.reset_mock()
+    fake_classify_video = MagicMock()
 
     with (
         patch("app.api.routes.uploads.garage_client", fake_garage),
         patch("app.api.routes.uploads.settings.MAX_UPLOAD_BYTES", 100),
+        patch("app.tasks.classify_video", fake_classify_video),
     ):
         r = client.post(
             f"{settings.API_V1_STR}/upload/",
@@ -111,6 +112,6 @@ def test_upload_rejects_oversize_payload(
 
     assert r.status_code == 413
     fake_garage.put_object.assert_not_called()
-    tasks_module.classify_video.assert_not_called()
+    fake_classify_video.assert_not_called()
     post_count = db.exec(select(ClassifyTask)).all()
     assert len(post_count) == len(pre_count)

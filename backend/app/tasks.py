@@ -1,15 +1,17 @@
+import functools
 import logging
 import tempfile
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Any
 
 import cv2 as cv
-import huey
 import numpy as np
 import tensorflow as tf
 from fastapi import HTTPException
 from huey import RedisHuey
-from minio import Minio, S3Error
+from minio import Minio
 from sqlmodel import Session
 
 from app.core.config import settings
@@ -17,29 +19,55 @@ from app.core.db import engine
 from app.models.classify_task import ClassifyTask, ClassifyTaskStatus
 from app.models.observation import Observation, ObservationCreate
 
+logger = logging.getLogger(__name__)
+
 
 class PerchpubTaskError(Exception):
-    def __init__(self, error_str):
+    def __init__(self, error_str: str) -> None:
         self.error_str = error_str
         super().__init__(f"Error while running a Perchpub task: {self.error_str}")
 
 
-init_successful = False
-try:
-    huey_client = RedisHuey(
-        name=settings.HUEY_CLIENT_NAME,
-        host=settings.HUEY_REDIS_HOST,
-        port=settings.HUEY_REDIS_PORT,
-    )
+# Construct unconditionally at import: redis-py connects lazily, and the Minio
+# client only opens sockets when a method is called. The legacy try/except
+# around these used to swallow ConfigurationError/ValueError/S3Error, but a
+# real network failure (urllib3 MaxRetryError) would still escape and break
+# module import — the worker container then died on startup.
+huey_client = RedisHuey(
+    name=settings.HUEY_CLIENT_NAME,
+    host=settings.HUEY_REDIS_HOST,
+    port=settings.HUEY_REDIS_PORT,
+)
 
-    garage_client = Minio(
-        endpoint=settings.GARAGE_ENDPOINT,
-        access_key=settings.GARAGE_KEY_ID,
-        secret_key=settings.GARAGE_SECRET,
-        secure=False,
-        region="garage",
-    )
+garage_client = Minio(
+    endpoint=settings.GARAGE_ENDPOINT,
+    access_key=settings.GARAGE_KEY_ID,
+    secret_key=settings.GARAGE_SECRET,
+    secure=False,
+    region="garage",
+)
 
+
+@dataclass
+class Classifier:
+    interpreter: Any
+    labels: list[str]
+    width: int
+    height: int
+    floating_model: bool
+    input_details: list[dict[str, Any]]
+    output_details: list[dict[str, Any]]
+    input_mean: float = 127.5
+    input_std: float = 127.5
+
+
+@functools.lru_cache(maxsize=1)
+def _get_classifier() -> Classifier:
+    """Fetch model + labels from Garage and build the TF Lite interpreter on first call.
+
+    Cached so subsequent classifications reuse the loaded model. If the load
+    raises, nothing is cached — the next call retries.
+    """
     model_content = garage_client.get_object(
         bucket_name=settings.GARAGE_BUCKET_NAME,
         object_name=settings.CLASSIFICATION_MODEL_OBJECT_NAME,
@@ -49,74 +77,63 @@ try:
         object_name=settings.CLASSIFICATION_LABELS_OBJECT_NAME,
     ).data
 
-# this can happen during Huey initialization
-except huey.exceptions.ConfigurationError as e:
-    logging.error(f"Configuration error while setting up huey: {e}")
-# this can happen while initializing Minio
-except ValueError as e:
-    logging.error(f"Initialization error in Minio: {e}")
-# this can happen when trying to access non existent files
-except S3Error as e:
-    logging.error(f"Error while opening classification model data: {e}")
-else:
     interpreter = tf.lite.Interpreter(model_content=model_content)
-    labels = labels_content.decode("utf-8").split("\n")
-
     interpreter.allocate_tensors()
-
-    # Get model details
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
+    return Classifier(
+        interpreter=interpreter,
+        labels=labels_content.decode("utf-8").split("\n"),
+        width=int(input_details[0]["shape"][2]),
+        height=int(input_details[0]["shape"][1]),
+        floating_model=input_details[0]["dtype"] == np.float32,
+        input_details=input_details,
+        output_details=output_details,
+    )
 
-    height = input_details[0]["shape"][1]
-    width = input_details[0]["shape"][2]
 
-    floating_model = input_details[0]["dtype"] == np.float32
-
-    input_mean = 127.5
-    input_std = 127.5
-
-    init_successful = True
-
-
-def classify_image(image_array):
+def classify_image(image_array: Any, classifier: Classifier) -> dict[str, float]:
     image_rgb = cv.cvtColor(image_array, cv.COLOR_BGR2RGB)
-    image_resized = cv.resize(image_rgb, (width, height))
-    input_data = np.expand_dims(image_resized, axis=0)
+    image_resized = cv.resize(image_rgb, (classifier.width, classifier.height))
+    input_data: Any = np.expand_dims(image_resized, axis=0)
 
-    if floating_model:
-        input_data = (np.float32(input_data) - input_mean) / input_std
+    if classifier.floating_model:
+        input_data = (np.float32(input_data) - classifier.input_mean) / classifier.input_std
 
-    interpreter.set_tensor(input_details[0]["index"], input_data)
-    interpreter.invoke()
+    classifier.interpreter.set_tensor(classifier.input_details[0]["index"], input_data)
+    classifier.interpreter.invoke()
 
-    output_data = interpreter.get_tensor(output_details[0]["index"])
-
+    output_data = classifier.interpreter.get_tensor(
+        classifier.output_details[0]["index"]
+    )
     results = np.squeeze(output_data)
-
     top_k = results.argsort()[-5:][::-1]
 
-    result = {}
+    result: dict[str, float] = {}
     for i in top_k:
-        if floating_model:
-            result[labels[i]] = float(results[i])
+        if classifier.floating_model:
+            result[classifier.labels[i]] = float(results[i])
         else:
-            result[labels[i]] = float(results[i] / 255.0)
-
+            result[classifier.labels[i]] = float(results[i] / 255.0)
     return result
 
 
 @huey_client.task()
-def classify_video(object_name: str, task_id: uuid.UUID):
-    if not init_successful:
-        raise PerchpubTaskError(
-            "Starting task not possible. There was an error during task runner initialization."
-        )
-
+def classify_video(object_name: str, task_id: uuid.UUID) -> Observation:
     with Session(engine) as session:
         task = session.get(ClassifyTask, task_id)
         if task is None:
             raise PerchpubTaskError(f"ClassifyTask {task_id} not found")
+
+        try:
+            classifier = _get_classifier()
+        except Exception as e:
+            logger.exception("Failed to load classifier for task %s", task_id)
+            task.status = ClassifyTaskStatus.Failed
+            session.add(task)
+            session.commit()
+            raise PerchpubTaskError(f"Classifier load failed: {e}")
+
         task.status = ClassifyTaskStatus.Processing
         session.add(task)
         session.commit()
@@ -145,10 +162,10 @@ def classify_video(object_name: str, task_id: uuid.UUID):
             for frame_number in range(0, total_frames, 10):
                 cap.set(cv.CAP_PROP_POS_FRAMES, frame_number)
                 _, image = cap.read()
-                results.append(classify_image(image))
+                results.append(classify_image(image, classifier))
 
         threshold = 0.3
-        max_scores = defaultdict(float)
+        max_scores: dict[str, float] = defaultdict(float)
         for result in results:
             for k, v in result.items():
                 if k == "None":
