@@ -74,7 +74,7 @@ class Settings(BaseSettings):
 
     MTLS_DEVICE_API_PREFIX: str = "/api/v1/device"
     MTLS_CLIENT_CERT_HEADER: str = "X-Forwarded-Tls-Client-Cert"
-    DEVICE_CLIENT_CA_CERT_PATH: str = "/etc/perchpub/mtls-ca.pem"
+    DEVICE_CLIENT_CA_CERT_PATH: str = "/home/step-ca/certs/intermediate_ca.crt"
 
     CLASSIFICATION_MODEL_OBJECT_NAME: str = "birdiary-v0.1/classify.tflite"
     CLASSIFICATION_LABELS_OBJECT_NAME: str = "birdiary-v0.1/labels.txt"
