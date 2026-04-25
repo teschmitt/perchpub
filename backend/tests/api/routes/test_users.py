@@ -282,6 +282,11 @@ def test_update_password_me_same_password_error(
     )
 
 
+GENERIC_SIGNUP_MESSAGE = (
+    "If this email is new, you'll receive a confirmation email."
+)
+
+
 def test_register_user(client: TestClient, db: Session) -> None:
     username = random_email()
     password = random_lower_string()
@@ -292,9 +297,7 @@ def test_register_user(client: TestClient, db: Session) -> None:
         json=data,
     )
     assert r.status_code == 200
-    created_user = r.json()
-    assert created_user["email"] == username
-    assert created_user["full_name"] == full_name
+    assert r.json() == {"message": GENERIC_SIGNUP_MESSAGE}
 
     user_query = select(User).where(User.email == username)
     user_db = db.exec(user_query).first()
@@ -304,7 +307,9 @@ def test_register_user(client: TestClient, db: Session) -> None:
     assert verify_password(password, user_db.hashed_password)
 
 
-def test_register_user_already_exists_error(client: TestClient) -> None:
+def test_register_user_already_exists_returns_same_generic(
+    client: TestClient, db: Session
+) -> None:
     password = random_lower_string()
     full_name = random_lower_string()
     data = {
@@ -316,8 +321,15 @@ def test_register_user_already_exists_error(client: TestClient) -> None:
         f"{settings.API_V1_STR}/users/signup",
         json=data,
     )
-    assert r.status_code == 400
-    assert r.json()["detail"] == "The user with this email already exists in the system"
+    assert r.status_code == 200
+    assert r.json() == {"message": GENERIC_SIGNUP_MESSAGE}
+
+    # Existing account remains untouched — the new password must not overwrite it.
+    existing = db.exec(
+        select(User).where(User.email == settings.FIRST_SUPERUSER)
+    ).first()
+    assert existing
+    assert not verify_password(password, existing.hashed_password)
 
 
 def test_update_user(

@@ -138,20 +138,25 @@ def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
     return Message(message="User deleted successfully")
 
 
-@router.post("/signup", response_model=UserPublic)
+GENERIC_SIGNUP_MESSAGE = (
+    "If this email is new, you'll receive a confirmation email."
+)
+
+
+@router.post("/signup", response_model=Message)
 def register_user(session: SessionDep, user_in: UserRegister) -> Any:
     """
     Create new user without the need to be logged in.
+
+    The response is intentionally the same regardless of whether the email was
+    already taken, so callers cannot enumerate existing accounts. A real
+    confirmation-email flow is not yet implemented (see FOLLOWUPS).
     """
-    user = crud.get_user_by_email(session=session, email=user_in.email)
-    if user:
-        raise HTTPException(
-            status_code=400,
-            detail="The user with this email already exists in the system",
-        )
-    user_create = UserCreate.model_validate(user_in)
-    user = crud.create_user(session=session, user_create=user_create)
-    return user
+    existing = crud.get_user_by_email(session=session, email=user_in.email)
+    if existing is None:
+        user_create = UserCreate.model_validate(user_in)
+        crud.create_user(session=session, user_create=user_create)
+    return Message(message=GENERIC_SIGNUP_MESSAGE)
 
 
 @router.get("/{user_id}", response_model=UserPublic)
