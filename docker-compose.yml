@@ -113,6 +113,70 @@ services:
       - POSTGRES_USER=${POSTGRES_USER?Variable not set}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
       - SENTRY_DSN=${SENTRY_DSN}
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.constraint-label=traefik-public
+
+      - traefik.http.services.${STACK_NAME?Variable not set}-backend.loadbalancer.server.port=8000
+
+      # Rate-limit middlewares (WI-14). Defaults use the connecting client IP
+      # (the dev override has no upstream proxy; prod runs Traefik at the edge).
+      # If a CDN is added in front, set sourcecriterion.ipstrategy.depth=1.
+      - traefik.http.middlewares.${STACK_NAME?Variable not set}-login-rl.ratelimit.average=10
+      - traefik.http.middlewares.${STACK_NAME?Variable not set}-login-rl.ratelimit.period=1m
+      - traefik.http.middlewares.${STACK_NAME?Variable not set}-login-rl.ratelimit.burst=20
+      - traefik.http.middlewares.${STACK_NAME?Variable not set}-recovery-rl.ratelimit.average=3
+      - traefik.http.middlewares.${STACK_NAME?Variable not set}-recovery-rl.ratelimit.period=1m
+      - traefik.http.middlewares.${STACK_NAME?Variable not set}-recovery-rl.ratelimit.burst=5
+      - traefik.http.middlewares.${STACK_NAME?Variable not set}-signup-rl.ratelimit.average=3
+      - traefik.http.middlewares.${STACK_NAME?Variable not set}-signup-rl.ratelimit.period=1m
+      - traefik.http.middlewares.${STACK_NAME?Variable not set}-signup-rl.ratelimit.burst=5
+
+      # HTTP catch-all: redirect to HTTPS in prod; dev override stubs
+      # https-redirect to a no-op so the http path-specific routers below still
+      # apply the rate limit when hit on port 80.
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-http.rule=Host(`api.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-http.entrypoints=http
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-http.middlewares=https-redirect
+
+      # HTTPS catch-all (prod terminator).
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.rule=Host(`api.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.entrypoints=https
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.tls=true
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.tls.certresolver=le
+
+      # Rate-limited routers. Path/PathPrefix rules are longer than the
+      # catch-all rule above, so Traefik's default rule-length priority routes
+      # matching requests here. Each protected path gets both an HTTP and an
+      # HTTPS router — HTTPS for prod, HTTP for dev (where 443 isn't exposed
+      # and https-redirect is stubbed to a no-op).
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-login-http.rule=Host(`api.${DOMAIN?Variable not set}`) && Path(`/api/v1/login/access-token`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-login-http.entrypoints=http
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-login-http.middlewares=${STACK_NAME?Variable not set}-login-rl,https-redirect
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-login-https.rule=Host(`api.${DOMAIN?Variable not set}`) && Path(`/api/v1/login/access-token`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-login-https.entrypoints=https
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-login-https.tls=true
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-login-https.tls.certresolver=le
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-login-https.middlewares=${STACK_NAME?Variable not set}-login-rl
+
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-recovery-http.rule=Host(`api.${DOMAIN?Variable not set}`) && (PathPrefix(`/api/v1/password-recovery/`) || Path(`/api/v1/reset-password/`))
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-recovery-http.entrypoints=http
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-recovery-http.middlewares=${STACK_NAME?Variable not set}-recovery-rl,https-redirect
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-recovery-https.rule=Host(`api.${DOMAIN?Variable not set}`) && (PathPrefix(`/api/v1/password-recovery/`) || Path(`/api/v1/reset-password/`))
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-recovery-https.entrypoints=https
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-recovery-https.tls=true
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-recovery-https.tls.certresolver=le
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-recovery-https.middlewares=${STACK_NAME?Variable not set}-recovery-rl
+
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-signup-http.rule=Host(`api.${DOMAIN?Variable not set}`) && Path(`/api/v1/users/signup`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-signup-http.entrypoints=http
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-signup-http.middlewares=${STACK_NAME?Variable not set}-signup-rl,https-redirect
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-signup-https.rule=Host(`api.${DOMAIN?Variable not set}`) && Path(`/api/v1/users/signup`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-signup-https.entrypoints=https
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-signup-https.tls=true
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-signup-https.tls.certresolver=le
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-signup-https.middlewares=${STACK_NAME?Variable not set}-signup-rl
 
   worker:
     image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
