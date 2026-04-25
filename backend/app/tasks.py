@@ -12,12 +12,14 @@ import tensorflow as tf
 from fastapi import HTTPException
 from huey import RedisHuey
 from minio import Minio
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.core.db import engine
 from app.models.classify_task import ClassifyTask, ClassifyTaskStatus
 from app.models.observation import Observation, ObservationCreate
+from app.models.species import Species
+from app.models.station import Station
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +92,14 @@ def _get_classifier() -> Classifier:
         input_details=input_details,
         output_details=output_details,
     )
+
+
+def _lookup_species_id(session: Session, label_id: int) -> uuid.UUID | None:
+    """Resolve a classifier label index to a `Species.id`, or `None` if unknown."""
+    species = session.exec(
+        select(Species).where(Species.classification_id == label_id)
+    ).first()
+    return species.id if species is not None else None
 
 
 def classify_image(image_array: Any, classifier: Classifier) -> dict[str, float]:
@@ -183,17 +193,30 @@ def classify_video(object_name: str, task_id: uuid.UUID) -> Observation:
             )
         ]
 
-        # TODO: get species from db
-        species_id = uuid.UUID("e6b950cd-36e4-44f2-a397-7643a15a3f42")
+        species_id: uuid.UUID | None = None
+        if birds:
+            top_label = str(birds[0]["species"])
+            try:
+                top_label_id = classifier.labels.index(top_label)
+            except ValueError:
+                top_label_id = -1
+            if top_label_id >= 0:
+                species_id = _lookup_species_id(session, top_label_id)
+
+        station = session.get(Station, task.upload.station_id)
+        if station is None:
+            raise PerchpubTaskError(
+                f"Station {task.upload.station_id} for upload {task.upload_id} not found"
+            )
 
         obs_in = ObservationCreate(
-            station_id=task.upload.station.id,
+            station_id=station.id,
             species_id=species_id,
             confidence_score=birds[0]["score"] if len(birds) > 0 else 0.0,
             classification_result=birds,
             observed_at=task.updated_at,
-            latitude=task.upload.station.latitude,
-            longitude=task.upload.station.longitude,
+            latitude=station.latitude,
+            longitude=station.longitude,
             object_name=object_name,
         )
         obs = Observation.model_validate(obs_in)

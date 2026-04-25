@@ -1,12 +1,11 @@
 import hashlib
 import io
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from minio import Minio, S3Error
 
-from app.api.deps import CurrentUser, SessionDep
+from app.api.deps import CurrentStation, SessionDep
 from app.core.config import settings
 from app.models.classify_task import (
     ClassifyTask,
@@ -31,12 +30,10 @@ _CHUNK_SIZE = 64 * 1024
 
 @router.post("/", response_model=ClassifyTaskPublic)
 def upload_file(
-    session: SessionDep, current_user: CurrentUser, file: UploadFile = File(...)
+    session: SessionDep,
+    current_station: CurrentStation,
+    file: UploadFile = File(...),
 ) -> ClassifyTask:
-
-    # TODO(WI-17): derive station_id from the authenticated station's mTLS cert.
-    station_id = uuid.UUID("e26042ab-a0b8-4264-90a4-f79da829d2ac")
-
     max_bytes = settings.MAX_UPLOAD_BYTES
     buffer = bytearray()
     while True:
@@ -83,7 +80,9 @@ def upload_file(
     }
 
     upload = Upload.model_validate(
-        UploadCreate(object_name=write_result.object_name, station_id=station_id)
+        UploadCreate(
+            object_name=write_result.object_name, station_id=current_station.id
+        )
     )
 
     task = ClassifyTask.model_validate(

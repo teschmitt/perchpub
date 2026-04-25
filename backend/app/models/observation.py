@@ -23,7 +23,7 @@ class ObservationCreate(ObservationBase):
     """Schema for creating a new observation."""
 
     station_id: uuid.UUID
-    species_id: uuid.UUID
+    species_id: uuid.UUID | None = None
     object_name: str = Field(description="S3 object name")
     observed_at: datetime = Field(description="When the bird was observed")
     latitude: float = Field(ge=-90, le=90, description="Latitude")
@@ -49,11 +49,12 @@ class Observation(PerchPubBase, ObservationBase, table=True):
         ondelete="CASCADE",
         description="ID of the station the species was observed at",
     )
-    species_id: uuid.UUID = Field(
+    species_id: uuid.UUID | None = Field(
+        default=None,
         foreign_key="species.id",
-        nullable=False,
-        ondelete="CASCADE",
-        description="ID of the station the species was observed at",
+        nullable=True,
+        ondelete="SET NULL",
+        description="Top classifier label resolved to a Species row, or NULL when no row matches",
     )
     object_name: str = Field(description="S3 object name")
     exif_data: dict = Field(
@@ -71,7 +72,7 @@ class Observation(PerchPubBase, ObservationBase, table=True):
     # TODO: augment with environmental data
 
     station: Station = Relationship(back_populates="observations")
-    species: Species = Relationship(back_populates="observations")
+    species: Species | None = Relationship(back_populates="observations")
     classify_tasks: list["ClassifyTask"] = Relationship(  # noqa: F821 # type: ignore
         back_populates="observation"
     )
@@ -81,7 +82,7 @@ class ObservationPublic(ObservationBase):
     """Schema for observation response."""
 
     id: uuid.UUID
-    species: SpeciesPublic
+    species: SpeciesPublic | None
     station: StationPublic
     observed_at: datetime
     object_name: str = Field(description="S3 object name")

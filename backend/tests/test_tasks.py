@@ -8,9 +8,11 @@ from sqlmodel import Session, select
 from app.core.security import get_password_hash
 from app.models.classify_task import ClassifyTask, ClassifyTaskStatus
 from app.models.observation import Observation
+from app.models.species import Species
 from app.models.station import Station
 from app.models.upload import Upload
 from app.models.user import User
+from app.tasks import _lookup_species_id
 from tests.utils.utils import random_email, random_lower_string
 
 
@@ -91,3 +93,27 @@ def test_classify_video_marks_task_failed_when_classifier_load_fails(
         select(Observation).where(Observation.station_id == task.upload.station_id)
     ).all()
     assert observations == []
+
+
+def test_lookup_species_id_returns_id_for_known_label(db: Session) -> None:
+    label_id = 4242
+    species = Species(
+        scientific_name=f"Testus speciesus {label_id}", classification_id=label_id
+    )
+    db.add(species)
+    db.commit()
+    db.refresh(species)
+
+    assert _lookup_species_id(db, label_id) == species.id
+
+
+def test_lookup_species_id_returns_none_for_unknown_label(db: Session) -> None:
+    unknown_label_id = 999_999
+    assert (
+        db.exec(
+            select(Species).where(Species.classification_id == unknown_label_id)
+        ).first()
+        is None
+    )
+
+    assert _lookup_species_id(db, unknown_label_id) is None
