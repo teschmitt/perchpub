@@ -29,6 +29,7 @@ class Station(PerchPubBase, StationBase, table=True):
     owner_id: uuid.UUID = Field(
         foreign_key="user.id", nullable=False, ondelete="CASCADE"
     )
+    spki_sha256: str | None = Field(default=None, unique=True, index=True)
     owner: User | None = Relationship(back_populates="stations")
     uploads: list["Upload"] = Relationship(  # noqa: F821 # type: ignore
         back_populates="station", cascade_delete=True

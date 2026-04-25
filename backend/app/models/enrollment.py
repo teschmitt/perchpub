@@ -13,6 +13,14 @@ class EnrollmentToken(SQLModel, table=True):
     token_tag: bytes = Field(nullable=False)
     key_id: str = Field(nullable=False)
     attempts: int = Field(ge=0, default=0)
+    owner_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=False, ondelete="CASCADE"
+    )
+    station_id: uuid.UUID | None = Field(
+        foreign_key="station.id", default=None, ondelete="SET NULL"
+    )
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
 
 
 class EnrollmentSession(SQLModel):

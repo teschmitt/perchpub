@@ -1,4 +1,6 @@
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 
 from app.core.config import settings
@@ -126,6 +128,23 @@ def test_read_station_other_user_private_returns_404(
         headers=headers,
     )
     assert r.status_code == 404
+
+
+def test_station_spki_sha256_is_unique(db: Session) -> None:
+    owner = _seed_user(db, password=random_lower_string())
+    pin = "a" * 64
+
+    first = Station(latitude=0.0, longitude=0.0, owner_id=owner.id, spki_sha256=pin)
+    db.add(first)
+    db.commit()
+    db.refresh(first)
+    assert first.spki_sha256 == pin
+
+    duplicate = Station(latitude=0.0, longitude=0.0, owner_id=owner.id, spki_sha256=pin)
+    db.add(duplicate)
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
 
 
 def test_read_stations_owner_sees_own_and_public(
