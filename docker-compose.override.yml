@@ -107,7 +107,7 @@ services:
       - .env.dev
     command:
       - huey_consumer.py
-      - app.tasks.huey
+      - app.tasks.huey_client
       - -k
       - process
       - -w
