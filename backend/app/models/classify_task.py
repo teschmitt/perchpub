@@ -34,6 +34,9 @@ class ClassifyTask(ClassifyTaskBase, table=True):
     __tablename__ = "classify_task"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    status: ClassifyTaskStatus = Field(
+        default=ClassifyTaskStatus.Prepared, index=True
+    )
     file_metadata: dict = Field(
         default_factory=dict,
         sa_column=Column(JSON),
@@ -44,7 +47,11 @@ class ClassifyTask(ClassifyTaskBase, table=True):
     )
     upload: Upload = Relationship(back_populates="classify_tasks")
     observation_id: uuid.UUID | None = Field(
-        default=None, foreign_key="observation.id", nullable=True, ondelete="SET NULL"
+        default=None,
+        foreign_key="observation.id",
+        nullable=True,
+        ondelete="SET NULL",
+        index=True,
     )
     observation: Observation = Relationship(  # noqa: F821 # type: ignore
         back_populates="classify_tasks"
