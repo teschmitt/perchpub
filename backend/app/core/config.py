@@ -64,6 +64,10 @@ class Settings(BaseSettings):
 
     MAX_UPLOAD_BYTES: int = 50 * 1024 * 1024
 
+    # Empty DEBUG_KEY disables the local-only /private router even when
+    # ENVIRONMENT=local. Set in .env.dev to use the debug endpoints.
+    DEBUG_KEY: str = ""
+
     # step-ca integration and mTLS device settings
     STEP_CA_URL: str = "http://step-ca:9000"
     STEP_CA_PROVISIONER_NAME: str = "device-enrollment"

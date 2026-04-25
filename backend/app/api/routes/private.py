@@ -1,16 +1,38 @@
-from typing import Any
+import secrets
+from typing import Annotated, Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
-from app.api.deps import SessionDep
+from app.api.deps import SessionDep, get_current_active_superuser
+from app.core.config import settings
 from app.core.security import get_password_hash
 from app.models import (
     User,
     UserPublic,
 )
 
-router = APIRouter(tags=["private"], prefix="/private")
+
+def verify_debug_key(
+    x_perchpub_debug_key: Annotated[str | None, Header()] = None,
+) -> None:
+    expected = settings.DEBUG_KEY
+    if not expected:
+        raise HTTPException(status_code=403, detail="Debug router disabled")
+    if x_perchpub_debug_key is None or not secrets.compare_digest(
+        x_perchpub_debug_key, expected
+    ):
+        raise HTTPException(status_code=403, detail="Invalid debug key")
+
+
+router = APIRouter(
+    tags=["private"],
+    prefix="/private",
+    dependencies=[
+        Depends(get_current_active_superuser),
+        Depends(verify_debug_key),
+    ],
+)
 
 
 class PrivateUserCreate(BaseModel):
