@@ -1,6 +1,7 @@
 *.excalidraw
 .env
 .env.*
+!.env.example
 pki/
 PLAN.md
 
