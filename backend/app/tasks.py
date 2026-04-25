@@ -107,13 +107,16 @@ def classify_image(image_array):
 
 
 @huey_client.task()
-def classify_video(object_name: str, task: ClassifyTask):
+def classify_video(object_name: str, task_id: uuid.UUID):
     if not init_successful:
         raise PerchpubTaskError(
             "Starting task not possible. There was an error during task runner initialization."
         )
 
     with Session(engine) as session:
+        task = session.get(ClassifyTask, task_id)
+        if task is None:
+            raise PerchpubTaskError(f"ClassifyTask {task_id} not found")
         task.status = ClassifyTaskStatus.Processing
         session.add(task)
         session.commit()

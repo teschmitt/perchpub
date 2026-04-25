@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     GARAGE_KEY_ID: str = ""
     GARAGE_SECRET: str = ""
 
+    MAX_UPLOAD_BYTES: int = 50 * 1024 * 1024
+
     # step-ca integration and mTLS device settings
     STEP_CA_URL: str = "http://step-ca:9000"
     STEP_CA_PROVISIONER_NAME: str = "device-enrollment"
