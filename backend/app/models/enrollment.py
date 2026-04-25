@@ -23,6 +23,13 @@ class EnrollmentToken(SQLModel, table=True):
     longitude: float | None = Field(default=None, ge=-180, le=180)
 
 
+class EnrollmentSessionCreate(SQLModel):
+    """Body the operator POSTs to /enrollment/create."""
+
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
 class EnrollmentSession(SQLModel):
     session_id: uuid.UUID
     auth_token: str
@@ -30,9 +37,15 @@ class EnrollmentSession(SQLModel):
 
 
 class EnrollmentRequest(SQLModel):
-    auth_token: str  # Auth token sent by the station to authenticate against the server
+    """Body the station POSTs to /enrollment/confirm."""
+
+    auth_token: str
+    csr_pem: str
 
 
 class EnrollmentResponse(SQLModel):
     success: bool
     reason: str = Field(default="")
+    certificate_pem: str | None = None
+    ca_chain_pem: str | None = None
+    station_id: uuid.UUID | None = None

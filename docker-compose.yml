@@ -91,6 +91,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_started
+      step-ca-provisioner-init:
+        condition: service_completed_successfully
     env_file:
       - .env.prod
     volumes:
@@ -280,6 +282,59 @@ services:
       - DOCKER_STEPCA_INIT_ADDRESS=:9000
       - DOCKER_STEPCA_INIT_REMOTE_MANAGEMENT=true
       - DOCKER_STEPCA_INIT_PROVISIONER_NAME=admin
+
+  # Idempotent init: ensures the backend-device-enrollment JWK provisioner
+  # exists on the running CA, then writes the decrypted private JWK to the
+  # shared step-ca volume so the backend can read it at STEP_CA_JWK_PATH.
+  # Exits 0 once the JWK file is in place; backend depends_on this service
+  # completing successfully before booting.
+  step-ca-provisioner-init:
+    image: smallstep/step-ca:0.29.0
+    networks:
+      - default
+    depends_on:
+      step-ca:
+        condition: service_healthy
+    volumes:
+      - step-ca:/home/step
+    env_file:
+      - .env.prod
+    environment:
+      - STEPPATH=/home/step
+      - STEP_CA_ADMIN_PASSWORD=${STEP_CA_ADMIN_PASSWORD?Variable not set}
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        PWFILE=$$(mktemp)
+        trap 'rm -f "$$PWFILE"' EXIT
+        printf '%s' "$$STEP_CA_ADMIN_PASSWORD" > "$$PWFILE"
+
+        if step ca provisioner list \
+            --ca-url=https://step-ca:9000 \
+            --root=/home/step/certs/root_ca.crt \
+          | jq -e '.[] | select(.name=="backend-device-enrollment")' >/dev/null; then
+          echo "provisioner backend-device-enrollment already exists; skipping create"
+        else
+          step ca provisioner add backend-device-enrollment --type JWK --create \
+            --ca-url=https://step-ca:9000 \
+            --root=/home/step/certs/root_ca.crt \
+            --admin-subject=step --admin-provisioner=admin \
+            --admin-password-file="$$PWFILE" \
+            --password-file="$$PWFILE"
+          echo "provisioner backend-device-enrollment created"
+        fi
+
+        step ca provisioner list \
+            --ca-url=https://step-ca:9000 \
+            --root=/home/step/certs/root_ca.crt \
+          | jq -r '.[] | select(.name=="backend-device-enrollment") | .encryptedKey' \
+          | step crypto jwe decrypt --password-file="$$PWFILE" \
+          > /home/step/backend-provisioner.jwk
+        chmod 0440 /home/step/backend-provisioner.jwk
+        echo "wrote /home/step/backend-provisioner.jwk"
+    restart: "no"
 
 volumes:
   pgdata:

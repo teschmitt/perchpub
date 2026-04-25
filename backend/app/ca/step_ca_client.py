@@ -88,8 +88,8 @@ def _build_provisioner_jwt(csr_pem: str, *, lifetime: int = 300) -> str:
     }
 
     headers: dict[str, Any] = {}
-    if settings.STEP_CA_PROVISIONER_KID:
-        headers["kid"] = settings.STEP_CA_PROVISIONER_KID
+    if jwk.key_id:
+        headers["kid"] = jwk.key_id
 
     return jwt.encode(payload, jwk.key, algorithm=jwk.algorithm_name, headers=headers)
 

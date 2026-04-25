@@ -69,8 +69,8 @@ class Settings(BaseSettings):
     # step-ca integration and mTLS device settings
     STEP_CA_URL: str = "http://step-ca:9000"
     STEP_CA_PROVISIONER_NAME: str = "device-enrollment"
-    STEP_CA_PROVISIONER_KID: str = ""
-    STEP_CA_JWK_PATH: str = "/home/step/provisioners/device-enrollment.jwk"
+    STEP_CA_ADMIN_PASSWORD: str = ""
+    STEP_CA_JWK_PATH: str = "/home/step-ca/backend-provisioner.jwk"
 
     MTLS_DEVICE_API_PREFIX: str = "/api/v1/device"
     MTLS_CLIENT_CERT_HEADER: str = "X-Forwarded-Tls-Client-Cert"

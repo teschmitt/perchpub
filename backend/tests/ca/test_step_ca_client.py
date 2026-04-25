@@ -54,7 +54,6 @@ def test_sign_device_csr_builds_correct_ott(
     provisioner_jwk: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "STEP_CA_JWK_PATH", str(provisioner_jwk["path"]))
-    monkeypatch.setattr(settings, "STEP_CA_PROVISIONER_KID", "test-kid-abc")
     monkeypatch.setattr(settings, "STEP_CA_PROVISIONER_NAME", "device-enrollment")
     monkeypatch.setattr(settings, "STEP_CA_URL", "http://step-ca.test:9000")
 
@@ -115,7 +114,6 @@ def test_sign_device_csr_falls_back_to_provisioner_name_when_csr_has_no_cn(
     provisioner_jwk: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "STEP_CA_JWK_PATH", str(provisioner_jwk["path"]))
-    monkeypatch.setattr(settings, "STEP_CA_PROVISIONER_KID", "test-kid-abc")
     monkeypatch.setattr(settings, "STEP_CA_PROVISIONER_NAME", "device-enrollment")
     monkeypatch.setattr(settings, "STEP_CA_URL", "http://step-ca.test:9000")
 
