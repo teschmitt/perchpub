@@ -1,8 +1,8 @@
 # PerchPub
 
-This is a work in progress. To be clear: nothing works yet and this project is under active development. Submit a PR or an issue if you want to help it along.
-
 PerchPub is a self-hosted bird-feeder observation server built on top of [FastAPI](https://github.com/fastapi/fastapi).
+
+This is an early-stage project under active development. The end-to-end ingest path — station enrollment, mTLS-authenticated upload, background classification, and observation persistence — is wired up; the frontend and ActivityPub publishing are not. Submit a PR or an issue if you want to help it along.
 
 The goal of the project is to:
 
@@ -23,7 +23,7 @@ A link to the Raspberry Pi station project will be added later.
 This repository contains the backend that powers PerchPub. At a high level, the backend:
 
 - Exposes an authenticated HTTP API for stations and users.
-- Manages users, API keys, stations, species, and observations in a relational database.
+- Manages users, stations, species, and observations in a relational database.
 - Accepts media uploads (images/videos) for each observation.
 - Schedules and tracks classification tasks for uploaded media.
 - Optionally publishes new observations via ActivityPub.
@@ -31,7 +31,7 @@ This repository contains the backend that powers PerchPub. At a high level, the 
 The backend is organized around a few core concepts:
 
 - **Users and authentication** – standard user accounts with secure password hashing, JWT-based authentication, and optional email-based flows inherited from the template.
-- **Stations** – registered devices (e.g. Raspberry Pis) that are allowed to upload observations. Stations authenticate using API keys or tokens.
+- **Stations** – registered devices (e.g. Raspberry Pis) that are allowed to upload observations. Each station authenticates with an mTLS client certificate issued during enrollment by the bundled [step-ca](https://smallstep.com/docs/step-ca/); the server pins the station's identity to the SHA-256 of the certificate's `SubjectPublicKeyInfo`, so cert renewal is a non-event as long as the keypair stays the same.
 - **Uploads** – raw media files (images or videos) sent by stations.
 - **Observations** – domain objects that connect an upload with a timestamp, a station, and later a species classification.
 - **Species** – known bird species that can be referenced by observations.
@@ -77,6 +77,80 @@ PerchPub is intended to optionally publish new observations into the Fediverse:
 
 The details of the ActivityPub integration are experimental and may evolve, but the goal is to make each station or server instance publish a stream of bird sightings.
 
+## Running locally
+
+The dev stack runs entirely in Docker Compose. From the repo root:
+
+```bash
+cp .env.example .env.dev  # then fill in real values; see "Environment" below
+docker compose watch
+```
+
+`docker compose watch` brings up Postgres, Redis, the backend, the worker (Huey + TF Lite classifier), Garage-compatible object storage, Traefik, mailcatcher, and step-ca. It also live-syncs backend code into the container as you edit. Once it's up:
+
+| Service | URL |
+| --- | --- |
+| Backend API + OpenAPI | <http://localhost:8000> / <http://localhost:8000/docs> |
+| Frontend | <http://localhost:5173> |
+| Adminer (DB) | <http://localhost:8080> |
+| Mailcatcher (SMTP UI) | <http://localhost:1080> |
+| Traefik dashboard | <http://localhost:8090> |
+| step-ca | <https://localhost:9000> |
+| mTLS entrypoint (upload route) | <https://localhost:8443> |
+
+Seed the first superuser:
+
+```bash
+docker compose exec backend python app/initial_data.py
+```
+
+For the full local-dev workflow (host-Python alternative, debugger, watch overrides) see [development.md](./development.md) and [backend/README.md](./backend/README.md).
+
+### Environment
+
+The backend's `Settings` does **not** auto-load any env file. In Docker, `.env.dev` is injected via each service's `env_file:` entry; on the host you need `set -a && . .env.dev && set +a` before `fastapi dev`. The minimum to boot is `PROJECT_NAME`, `POSTGRES_*`, `FIRST_SUPERUSER`, `FIRST_SUPERUSER_PASSWORD`, `SECRET_KEY`, `GARAGE_*`, `HUEY_REDIS_HOST`, and `ENROLLMENT_HMAC_KEY_HEX`. Generate fresh secrets with `python -c 'import secrets; print(secrets.token_urlsafe(32))'`.
+
+## Running the tests
+
+Two equivalent paths.
+
+**Against a running stack** (fast, what you'll use day-to-day):
+
+```bash
+docker compose exec backend bash scripts/tests-start.sh
+```
+
+Pytest args pass through, e.g. `... tests-start.sh -x -k upload` to stop on the first failure in upload tests.
+
+**Standalone, on the host** (also what CI runs):
+
+```bash
+cd backend
+uv sync
+bash scripts/test.sh
+```
+
+`scripts/test.sh` sources `../.env.dev` itself if present and runs pytest under `coverage`; the HTML report lands in `backend/htmlcov/index.html`.
+
+Lint and typecheck:
+
+```bash
+cd backend
+bash scripts/lint.sh   # mypy + ruff check + ruff format --check
+bash scripts/format.sh # ruff format + ruff check --fix
+```
+
+## Deploying a server
+
+Production deployments target a single Linux host running Docker Compose, fronted by Traefik with Let's Encrypt. The full procedure — DNS, secret generation, Traefik public network setup, step-ca bootstrap, and the staged `docker compose up` — is in [deployment.md](./deployment.md). At a high level a deployment needs:
+
+- A host with Docker and Docker Compose v2.
+- Public DNS for the API hostname (e.g. `api.example.com`) and the frontend host.
+- A `.env.prod` populated with rotated secrets (do **not** ship with placeholder values; see [SECURITY.md](./SECURITY.md)).
+- A Traefik instance with HTTPS termination on `:443` for the API and frontend, plus the dedicated mTLS entrypoint on `:8443` for `/api/v1/upload/` (see `traefik/dynamic.yml` for the file-provider config the dev stack uses; production needs the device-CA file mounted into whichever Traefik runs at the edge).
+
+Migrations apply automatically on backend start via `prestart`; new migrations are committed under `backend/app/alembic/versions/` and picked up at boot.
+
 ## Built on Full Stack FastAPI Template
 
 PerchPub uses the Full Stack FastAPI Template as its foundation. That provides:
@@ -85,11 +159,7 @@ PerchPub uses the Full Stack FastAPI Template as its foundation. That provides:
 - A Docker Compose setup for running the stack locally or in production.
 - Built-in testing, email-based password recovery, and reverse proxy configuration.
 
-For more detailed technical information about running and developing the backend, see:
-
-- Backend docs: [backend/README.md](./backend/README.md).
-- Deployment docs: [deployment.md](./deployment.md).
-- General development docs: [development.md](./development.md).
+For more detailed technical information see [backend/README.md](./backend/README.md), [deployment.md](./deployment.md), and [development.md](./development.md).
 
 ## License
 
