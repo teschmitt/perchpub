@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     STEP_CA_PROVISIONER_NAME: str = "device-enrollment"
     STEP_CA_ADMIN_PASSWORD: str = ""
     STEP_CA_JWK_PATH: str = "/home/step-ca/backend-provisioner.jwk"
+    STEP_CA_ROOT_CERT_PATH: str = "/home/step-ca/certs/root_ca.crt"
 
     MTLS_DEVICE_API_PREFIX: str = "/api/v1/device"
     MTLS_CLIENT_CERT_HEADER: str = "X-Forwarded-Tls-Client-Cert"

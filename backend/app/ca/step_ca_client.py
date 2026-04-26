@@ -101,7 +101,11 @@ async def sign_device_csr(csr_pem: str) -> SignedCertificate:
         "ott": _build_provisioner_jwt(csr_pem),
     }
 
-    async with httpx.AsyncClient(base_url=settings.STEP_CA_URL, timeout=10.0) as client:
+    async with httpx.AsyncClient(
+        base_url=settings.STEP_CA_URL,
+        timeout=10.0,
+        verify=settings.STEP_CA_ROOT_CERT_PATH,
+    ) as client:
         response = await client.post("/1.0/sign", json=request_body)
         response.raise_for_status()
         data = response.json()
