@@ -20,7 +20,7 @@ jobs:
       - name: Set up Python
         uses: https://github.com/actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: "3.12"
       - name: Install uv
         uses: https://github.com/astral-sh/setup-uv@v7
         with:
