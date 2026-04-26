@@ -63,6 +63,67 @@ def test_update_station_superuser(
     assert r.status_code == 200
 
 
+def test_update_station_owner_succeeds(client: TestClient, db: Session) -> None:
+    password = random_lower_string()
+    owner = _seed_user(db, password=password)
+    station = _seed_station(db, owner=owner, is_private=False)
+
+    headers = user_authentication_headers(
+        client=client, email=owner.email, password=password
+    )
+    r = client.put(
+        f"{settings.API_V1_STR}/station/{station.id}",
+        json={"latitude": 1.5, "longitude": 2.5, "is_private": True},
+        headers=headers,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["latitude"] == 1.5
+    assert body["longitude"] == 2.5
+    assert body["is_private"] is True
+
+    db.refresh(station)
+    assert station.owner_id == owner.id
+
+
+def test_update_station_other_user_public_returns_403(
+    client: TestClient, db: Session
+) -> None:
+    station = _seed_station(db, is_private=False)
+
+    other_password = random_lower_string()
+    other = _seed_user(db, password=other_password)
+    headers = user_authentication_headers(
+        client=client, email=other.email, password=other_password
+    )
+
+    r = client.put(
+        f"{settings.API_V1_STR}/station/{station.id}",
+        json={"latitude": 1.0, "longitude": 2.0},
+        headers=headers,
+    )
+    assert r.status_code == 403
+
+
+def test_update_station_other_user_private_returns_404(
+    client: TestClient, db: Session
+) -> None:
+    station = _seed_station(db, is_private=True)
+
+    other_password = random_lower_string()
+    other = _seed_user(db, password=other_password)
+    headers = user_authentication_headers(
+        client=client, email=other.email, password=other_password
+    )
+
+    r = client.put(
+        f"{settings.API_V1_STR}/station/{station.id}",
+        json={"latitude": 1.0, "longitude": 2.0},
+        headers=headers,
+    )
+    assert r.status_code == 404
+
+
 def test_read_station_owner_shape(client: TestClient, db: Session) -> None:
     station = _seed_station(db)
     r = client.get(f"{settings.API_V1_STR}/station/{station.id}")

@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import col, func, or_, select
 
@@ -8,7 +8,6 @@ from app.api.deps import (
     CurrentUser,
     OptionalCurrentUser,
     SessionDep,
-    get_current_active_superuser,
 )
 from app.models.station import (
     Station,
@@ -93,24 +92,26 @@ def create_station(
     return station
 
 
-@router.put(
-    "/{id}",
-    response_model=StationPublic,
-    dependencies=[Depends(get_current_active_superuser)],
-)
+@router.put("/{id}", response_model=StationPublic)
 def update_station(
     *,
     session: SessionDep,
+    current_user: CurrentUser,
     id: uuid.UUID,
     item_in: StationUpdate,
 ) -> StationPublic:
     """
-    Update an item.
+    Update a station. Owners may edit their own row; superusers may edit any.
+    Non-owners get 403 on a public station, 404 on a private one (matching
+    `read_station`'s existence-leak avoidance).
     """
     station = session.get(Station, id)
     if not station:
-        raise HTTPException(status_code=404, detail="Item not found")
-    # TODO: check authorization!
+        raise HTTPException(status_code=404, detail="Station not found")
+    if station.owner_id != current_user.id and not current_user.is_superuser:
+        if station.is_private:
+            raise HTTPException(status_code=404, detail="Station not found")
+        raise HTTPException(status_code=403, detail="Not enough permissions")
     update_dict = item_in.model_dump(exclude_unset=True)
     station.sqlmodel_update(update_dict)
     session.add(station)
