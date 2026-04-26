@@ -1,6 +1,6 @@
 import importlib
 import sys
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlmodel import Session, select
@@ -93,6 +93,32 @@ def test_classify_video_marks_task_failed_when_classifier_load_fails(
         select(Observation).where(Observation.station_id == task.upload.station_id)
     ).all()
     assert observations == []
+
+
+def test_classify_video_marks_task_failed_when_garage_fetch_fails(
+    db: Session, tasks_module
+) -> None:
+    task = _make_task(db)
+    task_id = task.id
+    object_name = task.object_name
+
+    tasks_module._get_classifier.cache_clear()
+
+    with (
+        patch.object(tasks_module, "_get_classifier", return_value=MagicMock()),
+        patch.object(
+            tasks_module.garage_client,
+            "fget_object",
+            side_effect=RuntimeError("garage unreachable"),
+        ),
+    ):
+        with pytest.raises(tasks_module.PerchpubTaskError):
+            tasks_module.classify_video.call_local(object_name, task_id)
+
+    db.expire_all()
+    refreshed = db.get(ClassifyTask, task_id)
+    assert refreshed is not None
+    assert refreshed.status == ClassifyTaskStatus.Failed
 
 
 def test_lookup_species_id_returns_id_for_known_label(db: Session) -> None:

@@ -9,7 +9,6 @@ from typing import Any
 import cv2 as cv
 import numpy as np
 import tensorflow as tf
-from fastapi import HTTPException
 from huey import RedisHuey
 from minio import Minio
 from sqlmodel import Session, select
@@ -160,13 +159,13 @@ def classify_video(object_name: str, task_id: uuid.UUID) -> Observation:
                     file_path=fp.name,
                 )
             except Exception as e:
-                with Session(engine) as session:
-                    task.status = ClassifyTaskStatus.Failed
-                    session.add(task)
-                    session.commit()
-                raise HTTPException(
-                    status_code=500, detail=f"Error fetching resource: '{e}'"
+                logger.exception(
+                    "Failed to fetch %s for task %s", object_name, task_id
                 )
+                task.status = ClassifyTaskStatus.Failed
+                session.add(task)
+                session.commit()
+                raise PerchpubTaskError(f"Error fetching resource: {e}")
 
             cap = cv.VideoCapture(fp.name)
             total_frames = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
