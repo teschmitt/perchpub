@@ -83,10 +83,12 @@ The dev stack runs entirely in Docker Compose. From the repo root:
 
 ```bash
 cp .env.example .env.dev  # then fill in real values; see "Environment" below
-docker compose watch
+docker compose --env-file .env.dev watch
 ```
 
-`docker compose watch` brings up Postgres, Redis, the backend, the worker (Huey + TF Lite classifier), Garage-compatible object storage, Traefik, mailcatcher, and step-ca. It also live-syncs backend code into the container as you edit. Once it's up:
+Every `docker compose` invocation in dev needs `--env-file .env.dev` — without it, compose loads no env file and `${STACK_NAME?Variable not set}` substitutions error out. Aliasing `dc='docker compose --env-file .env.dev'` saves repetition.
+
+`docker compose --env-file .env.dev watch` brings up Postgres, Redis, the backend, the worker (Huey + TF Lite classifier), step-ca (device-cert issuance), the frontend, mailcatcher, and adminer. Object storage is external — the TF Lite model lives in Hetzner Object Storage and is fetched on first classification. The `watch` mode live-syncs backend code into the container as you edit. Once it's up:
 
 | Service | URL |
 | --- | --- |
@@ -96,10 +98,10 @@ docker compose watch
 | Mailcatcher (SMTP UI) | <http://localhost:1080> |
 | step-ca | <https://localhost:9000> |
 
-Seed the first superuser:
+The first superuser is seeded automatically by `prestart` on each startup. To re-seed manually (e.g. after wiping `pgdata`):
 
 ```bash
-docker compose exec backend python app/initial_data.py
+docker compose --env-file .env.dev exec backend python app/initial_data.py
 ```
 
 For the full local-dev workflow (host-Python alternative, debugger, watch overrides) see [development.md](./development.md) and [backend/README.md](./backend/README.md).
@@ -115,10 +117,10 @@ Two equivalent paths.
 **Against a running stack** (fast, what you'll use day-to-day):
 
 ```bash
-docker compose exec backend bash scripts/tests-start.sh
+docker compose --env-file .env.dev exec backend bash scripts/tests-start.sh
 ```
 
-Pytest args pass through, e.g. `... tests-start.sh -x -k upload` to stop on the first failure in upload tests.
+Pytest args pass through, e.g. `docker compose --env-file .env.dev exec backend bash scripts/tests-start.sh -x -k upload` to stop on the first failure in upload tests.
 
 **Standalone, on the host** (also what CI runs):
 
