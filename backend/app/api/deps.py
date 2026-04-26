@@ -110,9 +110,11 @@ def get_current_station(session: SessionDep, request: Request) -> Station:
     boundary. mTLS-06 routes will use this dep on the upload path only.
 
     Header format: Traefik's `passTLSClientCert.pem` middleware emits a
-    URL-encoded PEM (Go `url.QueryEscape`). `urllib.parse.unquote`
-    inverses it without touching `+`, which appears literally inside
-    base64 PEM bodies.
+    URL-encoded PEM (Go `url.QueryEscape`). `QueryEscape` encodes spaces
+    as `+`, and `-----BEGIN CERTIFICATE-----` contains a literal space, so
+    we decode with `urllib.parse.unquote_plus` (which decodes both `%XX`
+    and `+`); plain `unquote` leaves the `+` as a literal byte and
+    `load_pem_x509_certificate` then fails to parse.
 
     Failure handling: every failure path collapses to 401 with the same
     generic detail. We do not distinguish between "header missing",
@@ -125,7 +127,7 @@ def get_current_station(session: SessionDep, request: Request) -> Station:
         raise _GENERIC_MTLS_401
 
     try:
-        pem_bytes = urllib.parse.unquote(encoded).encode("utf-8")
+        pem_bytes = urllib.parse.unquote_plus(encoded).encode("utf-8")
         leaf = x509.load_pem_x509_certificate(pem_bytes)
         ca = _load_device_ca()
         leaf.verify_directly_issued_by(ca)

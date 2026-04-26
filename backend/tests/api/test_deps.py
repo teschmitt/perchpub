@@ -83,7 +83,7 @@ def test_leaf_signed_by_different_ca_returns_401(
 ) -> None:
     foreign_ca = mtls.make_ca("Other CA")
     foreign_leaf = mtls.make_leaf(foreign_ca, "imposter.local")
-    encoded = urllib.parse.quote(foreign_leaf.cert_pem)
+    encoded = urllib.parse.quote_plus(foreign_leaf.cert_pem)
     with pytest.raises(HTTPException) as exc:
         get_current_station(
             session=db,
@@ -97,7 +97,7 @@ def test_no_station_with_matching_pin_returns_401(
     db: Session, device_ca: mtls.TestCA
 ) -> None:
     leaf = mtls.make_leaf(device_ca, "unenrolled.local")
-    encoded = urllib.parse.quote(leaf.cert_pem)
+    encoded = urllib.parse.quote_plus(leaf.cert_pem)
     with pytest.raises(HTTPException) as exc:
         get_current_station(
             session=db,
@@ -112,7 +112,7 @@ def test_valid_leaf_returns_matching_station(
 ) -> None:
     leaf = mtls.make_leaf(device_ca, "device-mtls04.local")
     persisted = _persist_station(db, spki_pin=leaf.spki_sha256_hex)
-    encoded = urllib.parse.quote(leaf.cert_pem)
+    encoded = urllib.parse.quote_plus(leaf.cert_pem)
     station = get_current_station(
         session=db,
         request=_request({settings.MTLS_CLIENT_CERT_HEADER: encoded}),

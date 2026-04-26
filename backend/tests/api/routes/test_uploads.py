@@ -48,7 +48,7 @@ def _persist_station(db: Session, spki_pin: str) -> Station:
 
 
 def _cert_header(leaf: mtls.TestLeaf) -> dict[str, str]:
-    return {settings.MTLS_CLIENT_CERT_HEADER: urllib.parse.quote(leaf.cert_pem)}
+    return {settings.MTLS_CLIENT_CERT_HEADER: urllib.parse.quote_plus(leaf.cert_pem)}
 
 
 def test_upload_without_cert_header_returns_401(client: TestClient) -> None:
