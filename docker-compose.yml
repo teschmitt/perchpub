@@ -82,7 +82,24 @@ services:
     env_file:
       - .env.prod
     volumes:
-      - step-ca:/home/step-ca:ro
+      # Two narrow subpath mounts off the step-ca volume (FU-13). The JWK
+      # file is the perchpub provisioner's private key; certs/ holds the
+      # public root + intermediate CA certs the backend needs for OTT
+      # signing and device-cert verification. Keep secrets/ (root and
+      # intermediate CA keys, root password) and the CA's db/ off the
+      # backend's filesystem.
+      - type: volume
+        source: step-ca
+        target: /home/step-ca/backend-provisioner.jwk
+        read_only: true
+        volume:
+          subpath: backend-provisioner.jwk
+      - type: volume
+        source: step-ca
+        target: /home/step-ca/certs
+        read_only: true
+        volume:
+          subpath: certs
     environment:
       # Override .env.{dev,prod}'s host-side `localhost` with the docker
       # service hostname so containers reach Postgres via the docker network.
