@@ -142,6 +142,35 @@ def test_upload_returns_generic_500_on_unexpected_storage_error(
     fake_classify_video.assert_not_called()
 
 
+def test_upload_returns_generic_500_on_classify_enqueue_failure(
+    db: Session, device_ca: mtls.TestCA
+) -> None:
+    leaf = mtls.make_leaf(device_ca, "device-enqueue.local")
+    _persist_station(db, spki_pin=leaf.spki_sha256_hex)
+
+    fake_write_result = MagicMock()
+    fake_write_result.object_name = "ab/cd/abcd1234.mp4"
+    fake_garage = MagicMock()
+    fake_garage.put_object.return_value = fake_write_result
+
+    fake_classify_video = MagicMock(side_effect=RuntimeError("redis unavailable"))
+
+    with (
+        TestClient(app, raise_server_exceptions=False) as plain_client,
+        patch("app.api.routes.uploads.garage_client", fake_garage),
+        patch("app.tasks.classify_video", fake_classify_video),
+    ):
+        r = plain_client.post(
+            f"{settings.API_V1_STR}/upload/",
+            files={"file": ("clip.mp4", b"hello", "video/mp4")},
+            headers=_cert_header(leaf),
+        )
+
+    assert r.status_code == 500
+    assert b"redis unavailable" not in r.content
+    fake_classify_video.assert_called_once()
+
+
 def test_upload_rejects_oversize_payload(
     client: TestClient, db: Session, device_ca: mtls.TestCA
 ) -> None:

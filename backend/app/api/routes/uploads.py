@@ -97,11 +97,6 @@ def upload_file(
     # init cost paid by the worker container (see app/tasks.py module init).
     from app.tasks import classify_video
 
-    try:
-        classify_video(write_result.object_name, task.id)
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error while starting classification task: '{e}'"
-        )
+    classify_video(write_result.object_name, task.id)
 
     return task
