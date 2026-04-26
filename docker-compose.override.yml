@@ -202,6 +202,10 @@ services:
     ports:
       - 9000:9000
 
+  step-ca-provisioner-init:
+    env_file:
+      - .env.dev
+
 networks:
   traefik-public:
     # For local dev, don't expect an external Traefik network

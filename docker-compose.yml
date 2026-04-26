@@ -3,8 +3,11 @@ services:
   db:
     image: postgres:17
     restart: always
+    # `$$POSTGRES_USER` / `$$POSTGRES_DB` resolve at container runtime from
+    # env_file injection, not from compose-parse-time substitution — keeps
+    # the env_file the single source of truth.
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
       interval: 10s
       retries: 5
       start_period: 30s
@@ -15,9 +18,6 @@ services:
       - .env.prod
     environment:
       - PGDATA=/var/lib/postgresql/data/pgdata
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
-      - POSTGRES_USER=${POSTGRES_USER?Variable not set}
-      - POSTGRES_DB=${POSTGRES_DB?Variable not set}
 
   adminer:
     image: adminer
@@ -59,23 +59,9 @@ services:
     env_file:
       - .env.prod
     environment:
-      - DOMAIN=${DOMAIN}
-      - FRONTEND_HOST=${FRONTEND_HOST?Variable not set}
-      - ENVIRONMENT=${ENVIRONMENT}
-      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS}
-      - SECRET_KEY=${SECRET_KEY?Variable not set}
-      - FIRST_SUPERUSER=${FIRST_SUPERUSER?Variable not set}
-      - FIRST_SUPERUSER_PASSWORD=${FIRST_SUPERUSER_PASSWORD?Variable not set}
-      - SMTP_HOST=${SMTP_HOST}
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_PASSWORD=${SMTP_PASSWORD}
-      - EMAILS_FROM_EMAIL=${EMAILS_FROM_EMAIL}
+      # Override .env.{dev,prod}'s host-side `localhost` with the docker
+      # service hostname so containers reach Postgres via the docker network.
       - POSTGRES_SERVER=db
-      - POSTGRES_PORT=${POSTGRES_PORT}
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER?Variable not set}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
-      - SENTRY_DSN=${SENTRY_DSN}
 
   backend:
     image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
@@ -98,23 +84,9 @@ services:
     volumes:
       - step-ca:/home/step-ca:ro
     environment:
-      - DOMAIN=${DOMAIN}
-      - FRONTEND_HOST=${FRONTEND_HOST?Variable not set}
-      - ENVIRONMENT=${ENVIRONMENT}
-      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS}
-      - SECRET_KEY=${SECRET_KEY?Variable not set}
-      - FIRST_SUPERUSER=${FIRST_SUPERUSER?Variable not set}
-      - FIRST_SUPERUSER_PASSWORD=${FIRST_SUPERUSER_PASSWORD?Variable not set}
-      - SMTP_HOST=${SMTP_HOST}
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_PASSWORD=${SMTP_PASSWORD}
-      - EMAILS_FROM_EMAIL=${EMAILS_FROM_EMAIL}
+      # Override .env.{dev,prod}'s host-side `localhost` with the docker
+      # service hostname so containers reach Postgres via the docker network.
       - POSTGRES_SERVER=db
-      - POSTGRES_PORT=${POSTGRES_PORT}
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER?Variable not set}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
-      - SENTRY_DSN=${SENTRY_DSN}
     labels:
       - traefik.enable=true
       - traefik.docker.network=traefik-public
@@ -196,24 +168,9 @@ services:
     env_file:
       - .env.prod
     environment:
-      # TODO: slim these down as needed
-      - DOMAIN=${DOMAIN}
-      - FRONTEND_HOST=${FRONTEND_HOST?Variable not set}
-      - ENVIRONMENT=${ENVIRONMENT}
-      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS}
-      - SECRET_KEY=${SECRET_KEY?Variable not set}
-      - FIRST_SUPERUSER=${FIRST_SUPERUSER?Variable not set}
-      - FIRST_SUPERUSER_PASSWORD=${FIRST_SUPERUSER_PASSWORD?Variable not set}
-      - SMTP_HOST=${SMTP_HOST}
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_PASSWORD=${SMTP_PASSWORD}
-      - EMAILS_FROM_EMAIL=${EMAILS_FROM_EMAIL}
+      # Override .env.{dev,prod}'s host-side `localhost` with the docker
+      # service hostname so containers reach Postgres via the docker network.
       - POSTGRES_SERVER=db
-      - POSTGRES_PORT=${POSTGRES_PORT}
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER?Variable not set}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
-      - SENTRY_DSN=${SENTRY_DSN}
 
   frontend:
     image: '${DOCKER_IMAGE_FRONTEND?Variable not set}:${TAG-latest}'
@@ -301,7 +258,6 @@ services:
       - .env.prod
     environment:
       - STEPPATH=/home/step
-      - STEP_CA_ADMIN_PASSWORD=${STEP_CA_ADMIN_PASSWORD?Variable not set}
     entrypoint:
       - bash
       - -c

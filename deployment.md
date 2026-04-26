@@ -126,7 +126,7 @@ There are some environment variables only used by GitHub Actions that you can co
 
 ### Generate secret keys
 
-Some environment variables in the `.env` file have a default value of `changethis`.
+Some environment variables in `.env.prod` have a default value of `changethis` (and the `STEP_CA_ADMIN_PASSWORD` placeholder still reads as the literal string `STEP_CA_ADMIN_PASSWORD`).
 
 You have to change them with a secret key, to generate secret keys you can run the following command:
 
@@ -138,13 +138,13 @@ Copy the content and use that as password / secret key. And run that again to ge
 
 ### Deploy with Docker Compose
 
-With the environment variables in place, you can deploy with Docker Compose:
+With `.env.prod` populated, deploy with:
 
 ```bash
-docker compose -f docker-compose.yml up -d
+docker compose --env-file .env.prod -f docker-compose.yml up -d
 ```
 
-For production you wouldn't want to have the overrides in `docker-compose.override.yml`, that's why we explicitly specify `docker-compose.yml` as the file to use.
+`--env-file .env.prod` is the single source of truth for both compose-parse-time `${VAR}` substitution (image tags, Traefik labels) and per-service `env_file:` injection. `-f docker-compose.yml` excludes `docker-compose.override.yml` so dev-only services (mailcatcher, playwright, the proxy override) don't come along.
 
 ## Continuous Deployment (CD)
 
@@ -335,7 +335,7 @@ Note that for this provisioner, step-ca uses the **public JWK only**; it doesnâ€
 
 #### Wire backend to use the dedicated JWK provisioner
 
-Adjust settings in [`backend/app/core/config.py`](backend/app/core/config.py) and `.env` for the new provisioner:
+Adjust settings in [`backend/app/core/config.py`](backend/app/core/config.py) and `.env.prod` for the new provisioner:
 
 ```python
 STEP_CA_URL: str = "https://step-ca:9000"
