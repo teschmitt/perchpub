@@ -68,3 +68,50 @@ def test_valid_secrets_load_in_production() -> None:
     )
     assert settings.SECRET_KEY == _VALID_SECRET
     assert settings.ENROLLMENT_HMAC_KEY_HEX == _VALID_HMAC
+
+
+def test_default_secret_key_fails_in_production() -> None:
+    with pytest.raises(ValueError, match="SECRET_KEY"):
+        Settings(
+            _env_file=None,
+            ENVIRONMENT="production",
+            SECRET_KEY="changethis",
+            ENROLLMENT_HMAC_KEY_HEX=_VALID_HMAC,
+            **_BASE_KWARGS,
+        )
+
+
+def test_default_postgres_password_fails_in_production() -> None:
+    kwargs = {**_BASE_KWARGS, "POSTGRES_PASSWORD": "changethis"}
+    with pytest.raises(ValueError, match="POSTGRES_PASSWORD"):
+        Settings(
+            _env_file=None,
+            ENVIRONMENT="production",
+            SECRET_KEY=_VALID_SECRET,
+            ENROLLMENT_HMAC_KEY_HEX=_VALID_HMAC,
+            **kwargs,
+        )
+
+
+def test_default_first_superuser_password_fails_in_production() -> None:
+    kwargs = {**_BASE_KWARGS, "FIRST_SUPERUSER_PASSWORD": "changethis"}
+    with pytest.raises(ValueError, match="FIRST_SUPERUSER_PASSWORD"):
+        Settings(
+            _env_file=None,
+            ENVIRONMENT="production",
+            SECRET_KEY=_VALID_SECRET,
+            ENROLLMENT_HMAC_KEY_HEX=_VALID_HMAC,
+            **kwargs,
+        )
+
+
+def test_missing_secret_key_warns_in_local() -> None:
+    with pytest.warns(UserWarning, match="SECRET_KEY"):
+        settings = Settings(
+            _env_file=None,
+            ENVIRONMENT="local",
+            SECRET_KEY="",
+            ENROLLMENT_HMAC_KEY_HEX=_VALID_HMAC,
+            **_BASE_KWARGS,
+        )
+    assert settings.SECRET_KEY == ""
