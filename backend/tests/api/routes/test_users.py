@@ -282,9 +282,7 @@ def test_update_password_me_same_password_error(
     )
 
 
-GENERIC_SIGNUP_MESSAGE = (
-    "If this email is new, you'll receive a confirmation email."
-)
+GENERIC_SIGNUP_MESSAGE = "If this email is new, you'll receive a confirmation email."
 
 
 def test_register_user(client: TestClient, db: Session) -> None:

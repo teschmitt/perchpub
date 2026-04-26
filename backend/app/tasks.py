@@ -159,9 +159,7 @@ def classify_video(object_name: str, task_id: uuid.UUID) -> Observation:
                     file_path=fp.name,
                 )
             except Exception as e:
-                logger.exception(
-                    "Failed to fetch %s for task %s", object_name, task_id
-                )
+                logger.exception("Failed to fetch %s for task %s", object_name, task_id)
                 task.status = ClassifyTaskStatus.Failed
                 session.add(task)
                 session.commit()

@@ -160,9 +160,7 @@ def test_reset_password_unknown_email_matches_invalid_token(
     # Forge a signed token for an email that is not in the DB — the signature
     # is valid but the user does not exist. The response must look identical
     # to an invalid-token reply so the caller cannot enumerate addresses.
-    token = generate_password_reset_token(
-        email=f"{random_lower_string()}@example.com"
-    )
+    token = generate_password_reset_token(email=f"{random_lower_string()}@example.com")
     r = client.post(
         f"{settings.API_V1_STR}/reset-password/",
         headers=superuser_token_headers,

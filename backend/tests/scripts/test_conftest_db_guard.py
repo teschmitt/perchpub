@@ -32,6 +32,6 @@ def test_conftest_overrides_postgres_db_when_invoked_directly() -> None:
         cwd=str(backend_root),
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "app_test", (
-        f"expected app_test, got {result.stdout!r}; stderr: {result.stderr}"
-    )
+    assert (
+        result.stdout.strip() == "app_test"
+    ), f"expected app_test, got {result.stdout!r}; stderr: {result.stderr}"

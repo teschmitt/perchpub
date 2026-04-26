@@ -42,9 +42,7 @@ def _make_csr(common_name: str = "device-001.local") -> str:
     private_key = ec.generate_private_key(ec.SECP256R1())
     csr = (
         x509.CertificateSigningRequestBuilder()
-        .subject_name(
-            x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
-        )
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)]))
         .sign(private_key, hashes.SHA256())
     )
     return csr.public_bytes(serialization.Encoding.PEM).decode("utf-8")

@@ -145,17 +145,13 @@ def test_read_stations_anon_excludes_private(client: TestClient, db: Session) ->
     assert str(private_station.id) not in ids
 
 
-def test_read_station_anon_private_returns_404(
-    client: TestClient, db: Session
-) -> None:
+def test_read_station_anon_private_returns_404(client: TestClient, db: Session) -> None:
     station = _seed_station(db, is_private=True)
     r = client.get(f"{settings.API_V1_STR}/station/{station.id}")
     assert r.status_code == 404
 
 
-def test_read_station_owner_sees_own_private(
-    client: TestClient, db: Session
-) -> None:
+def test_read_station_owner_sees_own_private(client: TestClient, db: Session) -> None:
     password = random_lower_string()
     owner = _seed_user(db, password=password)
     station = _seed_station(db, owner=owner, is_private=True)

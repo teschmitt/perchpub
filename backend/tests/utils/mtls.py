@@ -49,9 +49,7 @@ class TestLeaf:
 
 def make_ca(common_name: str = "PerchPub Test Device CA") -> TestCA:
     key = ec.generate_private_key(ec.SECP256R1())
-    subject = issuer = x509.Name(
-        [x509.NameAttribute(NameOID.COMMON_NAME, common_name)]
-    )
+    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
     now = datetime.now(timezone.utc)
     cert = (
         x509.CertificateBuilder()
