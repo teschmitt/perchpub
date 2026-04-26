@@ -47,7 +47,7 @@ def read_classify_tasks(
 
 
 @router.get("/{id}", response_model=ClassifyTaskPublic)
-def read_observation(session: SessionDep, id: uuid.UUID) -> ClassifyTask:
+def read_classify_task(session: SessionDep, id: uuid.UUID) -> ClassifyTask:
     """
     Get classify task by ID.
     """
