@@ -109,12 +109,14 @@ def get_current_station(session: SessionDep, request: Request) -> Station:
     attacker-controlled — entrypoint isolation is what backs the trust
     boundary. mTLS-06 routes will use this dep on the upload path only.
 
-    Header format: Traefik's `passTLSClientCert.pem` middleware emits a
-    URL-encoded PEM (Go `url.QueryEscape`). `QueryEscape` encodes spaces
-    as `+`, and `-----BEGIN CERTIFICATE-----` contains a literal space, so
-    we decode with `urllib.parse.unquote_plus` (which decodes both `%XX`
-    and `+`); plain `unquote` leaves the `+` as a literal byte and
-    `load_pem_x509_certificate` then fails to parse.
+    Header format: Traefik's `passTLSClientCert.pem` middleware emits the
+    leaf URL-encoded — newlines as `%0A`, `+` left as literal `+` because
+    it's a valid base64 char and Traefik's escape doesn't treat headers
+    as form-data. Use `urllib.parse.unquote` (NOT `unquote_plus`):
+    `unquote_plus` would decode `+` → space and corrupt the base64 body.
+    Traefik 3.x's `pem: true` strips the `-----BEGIN/END CERTIFICATE-----`
+    armor and forwards just the base64 body, so we re-attach the armor
+    when missing before parsing.
 
     Failure handling: every failure path collapses to 401 with the same
     generic detail. We do not distinguish between "header missing",
@@ -127,8 +129,14 @@ def get_current_station(session: SessionDep, request: Request) -> Station:
         raise _GENERIC_MTLS_401
 
     try:
-        pem_bytes = urllib.parse.unquote_plus(encoded).encode("utf-8")
-        leaf = x509.load_pem_x509_certificate(pem_bytes)
+        decoded = urllib.parse.unquote(encoded).strip().encode("utf-8")
+        if b"-----BEGIN CERTIFICATE-----" not in decoded:
+            decoded = (
+                b"-----BEGIN CERTIFICATE-----\n"
+                + decoded
+                + b"\n-----END CERTIFICATE-----\n"
+            )
+        leaf = x509.load_pem_x509_certificate(decoded)
         ca = _load_device_ca()
         leaf.verify_directly_issued_by(ca)
         now = datetime.now(timezone.utc)
