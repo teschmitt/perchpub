@@ -21,7 +21,7 @@ garage_client = Minio(
     endpoint=settings.GARAGE_ENDPOINT,
     access_key=settings.GARAGE_KEY_ID,
     secret_key=settings.GARAGE_SECRET,
-    secure=False,
+    secure=settings.GARAGE_USE_TLS,
     region="garage",
 )
 

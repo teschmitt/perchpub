@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     GARAGE_ENDPOINT: str = ""
     GARAGE_KEY_ID: str = ""
     GARAGE_SECRET: str = ""
+    GARAGE_USE_TLS: bool = True
 
     MAX_UPLOAD_BYTES: int = 50 * 1024 * 1024
 
