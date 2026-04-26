@@ -21,6 +21,6 @@ export POSTGRES_DB="${TEST_POSTGRES_DB:-app_test}"
 python app/tests_pre_start.py
 alembic upgrade head
 
-coverage run -m pytest tests/
+coverage run -m pytest -m "not integration" tests/
 coverage report
 coverage html --title "${@-coverage}"

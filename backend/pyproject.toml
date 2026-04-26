@@ -75,6 +75,12 @@ ignore = [
 # Preserve types, even if a file imports `from __future__ import annotations`.
 keep-runtime-typing = true
 
+[tool.pytest.ini_options]
+addopts = "--strict-markers"
+markers = [
+    "integration: cross-process tests against real services; opt-in via scripts/integration-test.sh",
+]
+
 [tool.coverage.run]
 source = ["app"]
 dynamic_context = "test_function"
