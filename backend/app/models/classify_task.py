@@ -34,9 +34,7 @@ class ClassifyTask(ClassifyTaskBase, table=True):
     __tablename__ = "classify_task"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    status: ClassifyTaskStatus = Field(
-        default=ClassifyTaskStatus.Prepared, index=True
-    )
+    status: ClassifyTaskStatus = Field(default=ClassifyTaskStatus.Prepared, index=True)
     file_metadata: dict = Field(
         default_factory=dict,
         sa_column=Column(JSON),

@@ -138,9 +138,7 @@ def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
     return Message(message="User deleted successfully")
 
 
-GENERIC_SIGNUP_MESSAGE = (
-    "If this email is new, you'll receive a confirmation email."
-)
+GENERIC_SIGNUP_MESSAGE = "If this email is new, you'll receive a confirmation email."
 
 
 @router.post("/signup", response_model=Message)

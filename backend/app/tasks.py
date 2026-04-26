@@ -108,7 +108,9 @@ def classify_image(image_array: Any, classifier: Classifier) -> dict[str, float]
     input_data: Any = np.expand_dims(image_resized, axis=0)
 
     if classifier.floating_model:
-        input_data = (np.float32(input_data) - classifier.input_mean) / classifier.input_std
+        input_data = (
+            np.float32(input_data) - classifier.input_mean
+        ) / classifier.input_std
 
     classifier.interpreter.set_tensor(classifier.input_details[0]["index"], input_data)
     classifier.interpreter.invoke()
