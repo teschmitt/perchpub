@@ -1,14 +1,22 @@
-from collections.abc import Generator
+import os
 
-import pytest
-from fastapi.testclient import TestClient
-from sqlmodel import Session, SQLModel, delete
+# FU-16 hardening: force tests onto the dedicated test DB before any app
+# import builds `Settings()`. `scripts/test.sh` already exports this, but a
+# direct `pytest ...` invocation inherits whatever POSTGRES_DB the dev env
+# carries — that bypass would let the autouse teardown wipe the dev DB.
+os.environ["POSTGRES_DB"] = os.environ.get("TEST_POSTGRES_DB", "app_test")
 
-from app.core.config import settings
-from app.core.db import engine, init_db
-from app.main import app
-from tests.utils.user import authentication_token_from_email
-from tests.utils.utils import get_superuser_token_headers
+from collections.abc import Generator  # noqa: E402
+
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlmodel import Session, SQLModel, delete  # noqa: E402
+
+from app.core.config import settings  # noqa: E402
+from app.core.db import engine, init_db  # noqa: E402
+from app.main import app  # noqa: E402
+from tests.utils.user import authentication_token_from_email  # noqa: E402
+from tests.utils.utils import get_superuser_token_headers  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
