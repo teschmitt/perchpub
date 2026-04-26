@@ -42,7 +42,9 @@ class Species(PerchPubBase, SpeciesBase, table=True):
 class SpeciesCreate(SpeciesBase):
     """Schema for creating a new species."""
 
-    pass
+    classification_id: int = Field(
+        ge=0, description="Classification ID returned from model"
+    )
 
 
 class SpeciesPublic(SpeciesBase):
