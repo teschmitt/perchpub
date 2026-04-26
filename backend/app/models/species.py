@@ -1,9 +1,13 @@
 import enum
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.base import PerchPubBase
+
+if TYPE_CHECKING:
+    from app.models.observation import Observation
 
 
 class IUCNStatus(str, enum.Enum):
@@ -34,9 +38,7 @@ class Species(PerchPubBase, SpeciesBase, table=True):
     # TODO: for now only store classification data for the one model we have
     # TODO: in future, version the models and annotate DB data with model versions here and in the classify_task table
     # model_version: int = Field(ge=0, description="Classification model version")
-    observations: list["Observation"] = Relationship(  # noqa: F821 # type: ignore
-        back_populates="species"
-    )
+    observations: list["Observation"] = Relationship(back_populates="species")
 
 
 class SpeciesCreate(SpeciesBase):

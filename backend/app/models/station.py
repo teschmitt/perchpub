@@ -1,11 +1,16 @@
 """Station Pydantic schemas."""
 
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.base import PerchPubBase
 from app.models.user import User
+
+if TYPE_CHECKING:
+    from app.models.observation import Observation
+    from app.models.upload import Upload
 
 
 class StationBase(SQLModel):
@@ -31,10 +36,10 @@ class Station(PerchPubBase, StationBase, table=True):
     )
     spki_sha256: str | None = Field(default=None, unique=True, index=True)
     owner: User | None = Relationship(back_populates="stations")
-    uploads: list["Upload"] = Relationship(  # noqa: F821 # type: ignore
+    uploads: list["Upload"] = Relationship(
         back_populates="station", cascade_delete=True
     )
-    observations: list["Observation"] = Relationship(  # noqa: F821 # type: ignore
+    observations: list["Observation"] = Relationship(
         back_populates="station", cascade_delete=True
     )
 

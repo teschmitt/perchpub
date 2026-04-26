@@ -61,7 +61,7 @@ def read_stations(
 @router.get("/{id}", response_model=StationPublic)
 def read_station(
     session: SessionDep, current_user: OptionalCurrentUser, id: uuid.UUID
-) -> StationPublic:
+) -> Station:
     """
     Get station by ID.
     """
@@ -79,7 +79,7 @@ def read_station(
 @router.post("/", response_model=StationPublic)
 def create_station(
     *, session: SessionDep, current_user: CurrentUser, station_in: StationCreate
-) -> StationPublic:
+) -> Station:
     """
     Create new station.
     """
@@ -99,7 +99,7 @@ def update_station(
     current_user: CurrentUser,
     id: uuid.UUID,
     item_in: StationUpdate,
-) -> StationPublic:
+) -> Station:
     """
     Update a station. Owners may edit their own row; superusers may edit any.
     Non-owners get 403 on a public station, 404 on a private one (matching

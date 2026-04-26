@@ -1,6 +1,7 @@
 import enum
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
@@ -23,7 +24,7 @@ class ClassifyTaskBase(SQLModel):
 
 class ClassifyTaskCreate(ClassifyTaskBase):
     upload_id: uuid.UUID
-    file_metadata: dict
+    file_metadata: dict[str, Any]
 
 
 class ClassifyTaskUpdate(ClassifyTaskBase):
@@ -35,7 +36,7 @@ class ClassifyTask(ClassifyTaskBase, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     status: ClassifyTaskStatus = Field(default=ClassifyTaskStatus.Prepared, index=True)
-    file_metadata: dict = Field(
+    file_metadata: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSON),
         description="Metadata for the associated image",
@@ -51,9 +52,7 @@ class ClassifyTask(ClassifyTaskBase, table=True):
         ondelete="SET NULL",
         index=True,
     )
-    observation: Observation = Relationship(  # noqa: F821 # type: ignore
-        back_populates="classify_tasks"
-    )
+    observation: Observation = Relationship(back_populates="classify_tasks")
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc), nullable=False
     )

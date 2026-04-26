@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
@@ -9,12 +10,15 @@ from app.models.base import PerchPubBase
 from app.models.species import Species, SpeciesPublic
 from app.models.station import Station, StationPublic
 
+if TYPE_CHECKING:
+    from app.models.classify_task import ClassifyTask
+
 
 class ObservationBase(SQLModel):
     """Base observation schema with shared fields."""
 
     confidence_score: float | None = Field(description="AI confidence score (0-1)")
-    classification_result: list | None = Field(
+    classification_result: list[Any] | None = Field(
         description="Complete results from classification task", sa_column=Column(JSON)
     )
 
@@ -57,7 +61,7 @@ class Observation(PerchPubBase, ObservationBase, table=True):
         description="Top classifier label resolved to a Species row, or NULL when no row matches",
     )
     object_name: str = Field(description="S3 object name")
-    exif_data: dict = Field(
+    exif_data: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSON),
         description="EXIF metadata from image",
@@ -73,9 +77,7 @@ class Observation(PerchPubBase, ObservationBase, table=True):
 
     station: Station = Relationship(back_populates="observations")
     species: Species | None = Relationship(back_populates="observations")
-    classify_tasks: list["ClassifyTask"] = Relationship(  # noqa: F821 # type: ignore
-        back_populates="observation"
-    )
+    classify_tasks: list["ClassifyTask"] = Relationship(back_populates="observation")
 
 
 class ObservationPublic(ObservationBase):

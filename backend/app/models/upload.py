@@ -1,9 +1,13 @@
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.base import PerchPubBase
 from app.models.station import Station
+
+if TYPE_CHECKING:
+    from app.models.classify_task import ClassifyTask
 
 
 class UploadBase(SQLModel):
@@ -24,7 +28,7 @@ class Upload(PerchPubBase, UploadBase, table=True):
         foreign_key="station.id", nullable=False, ondelete="CASCADE"
     )
     station: Station | None = Relationship(back_populates="uploads")
-    classify_tasks: list["ClassifyTask"] = Relationship(  # noqa: F821 # type: ignore
+    classify_tasks: list["ClassifyTask"] = Relationship(
         back_populates="upload", cascade_delete=True
     )
 

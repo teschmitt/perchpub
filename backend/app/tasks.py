@@ -129,7 +129,7 @@ def classify_image(image_array: Any, classifier: Classifier) -> dict[str, float]
     return result
 
 
-@huey_client.task()
+@huey_client.task()  # type: ignore[misc]
 def classify_video(object_name: str, task_id: uuid.UUID) -> Observation:
     with Session(engine) as session:
         task = session.get(ClassifyTask, task_id)

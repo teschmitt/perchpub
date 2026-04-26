@@ -32,7 +32,7 @@ def read_observations(
 
 
 @router.get("/{id}", response_model=ObservationPublic)
-def read_observation(session: SessionDep, id: uuid.UUID) -> ObservationPublic:
+def read_observation(session: SessionDep, id: uuid.UUID) -> Observation:
     """
     Get observation by ID.
     """
@@ -49,7 +49,7 @@ def read_observation(session: SessionDep, id: uuid.UUID) -> ObservationPublic:
 )
 def create_observation(
     *, session: SessionDep, observation_in: ObservationCreate
-) -> ObservationPublic:
+) -> Observation:
     """
     Create new observation.
     """
@@ -72,7 +72,7 @@ def update_observation(
     session: SessionDep,
     id: uuid.UUID,
     obs_in: ObservationUpdate,
-) -> ObservationPublic:
+) -> Observation:
     """
     Update an item.
     """

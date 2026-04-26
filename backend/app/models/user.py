@@ -1,7 +1,11 @@
 import uuid
+from typing import TYPE_CHECKING
 
 from pydantic import EmailStr
 from sqlmodel import Field, Relationship, SQLModel
+
+if TYPE_CHECKING:
+    from app.models.station import Station
 
 
 # Shared properties
@@ -38,7 +42,7 @@ class UserUpdateMe(SQLModel):
 class User(UserBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     hashed_password: str
-    stations: list["Station"] = Relationship(  # noqa: F821 # type: ignore
+    stations: list["Station"] = Relationship(
         back_populates="owner", cascade_delete=True
     )
 

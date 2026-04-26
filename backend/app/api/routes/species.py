@@ -26,7 +26,7 @@ def read__multiple_species(
 
 
 @router.get("/{id}", response_model=SpeciesPublic)
-def read_species(session: SessionDep, id: uuid.UUID) -> SpeciesPublic:
+def read_species(session: SessionDep, id: uuid.UUID) -> Species:
     """
     Get species by ID.
     """
@@ -41,7 +41,7 @@ def read_species(session: SessionDep, id: uuid.UUID) -> SpeciesPublic:
     response_model=SpeciesPublic,
     dependencies=[Depends(get_current_active_superuser)],
 )
-def create_species(*, session: SessionDep, species_in: SpeciesCreate) -> SpeciesPublic:
+def create_species(*, session: SessionDep, species_in: SpeciesCreate) -> Species:
     """
     Create new species.
     """
