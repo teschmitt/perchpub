@@ -3,7 +3,7 @@ import io
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from minio import Minio, S3Error
+from minio import Minio
 
 from app.api.deps import CurrentStation, SessionDep
 from app.core.config import settings
@@ -54,22 +54,17 @@ def upload_file(
     object_key = f"{file_hash[:2]}/{file_hash[2:4]}/{file_hash}{file_ext}"
     content_type = file.content_type or "application/octet-stream"
 
-    try:
-        write_result = garage_client.put_object(
-            bucket_name=settings.GARAGE_BUCKET_NAME,
-            object_name=object_key,
-            data=io.BytesIO(file_content),
-            length=file_size,
-            content_type=content_type,
-            metadata={
-                "original_filename": file.filename or "",
-                "file_size": str(file_size),
-            },
-        )
-    except S3Error as e:
-        raise HTTPException(status_code=500, detail=f"Storage error: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Service error: {str(e)}")
+    write_result = garage_client.put_object(
+        bucket_name=settings.GARAGE_BUCKET_NAME,
+        object_name=object_key,
+        data=io.BytesIO(file_content),
+        length=file_size,
+        content_type=content_type,
+        metadata={
+            "original_filename": file.filename or "",
+            "file_size": str(file_size),
+        },
+    )
 
     metadata = {
         "original_filename": file.filename,

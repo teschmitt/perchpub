@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 from app.api.deps import _load_device_ca
 from app.core.config import settings
 from app.core.security import get_password_hash
+from app.main import app
 from app.models import ClassifyTask, Station, User
 from tests.utils import mtls
 from tests.utils.utils import random_email, random_lower_string
@@ -111,6 +112,34 @@ def test_upload_creates_classify_task_bound_to_authenticated_station(
     args, _kwargs = fake_classify_video.call_args
     assert args[0] == fake_write_result.object_name
     assert args[1] == task_id
+
+
+def test_upload_returns_generic_500_on_unexpected_storage_error(
+    db: Session, device_ca: mtls.TestCA
+) -> None:
+    leaf = mtls.make_leaf(device_ca, "device-error.local")
+    _persist_station(db, spki_pin=leaf.spki_sha256_hex)
+
+    fake_garage = MagicMock()
+    fake_garage.put_object.side_effect = RuntimeError("connection reset by peer")
+    fake_classify_video = MagicMock()
+
+    # raise_server_exceptions=False so FastAPI's default 500 handler runs
+    # in-process instead of propagating the exception out of TestClient.
+    with (
+        TestClient(app, raise_server_exceptions=False) as plain_client,
+        patch("app.api.routes.uploads.garage_client", fake_garage),
+        patch("app.tasks.classify_video", fake_classify_video),
+    ):
+        r = plain_client.post(
+            f"{settings.API_V1_STR}/upload/",
+            files={"file": ("clip.mp4", b"hello", "video/mp4")},
+            headers=_cert_header(leaf),
+        )
+
+    assert r.status_code == 500
+    assert b"connection reset" not in r.content
+    fake_classify_video.assert_not_called()
 
 
 def test_upload_rejects_oversize_payload(
