@@ -99,15 +99,16 @@ def get_current_station(session: SessionDep, request: Request) -> Station:
     """Resolve the calling station from the forwarded mTLS client cert.
 
     Threat model: this dependency only authenticates when the request
-    arrives via the Traefik `mtls` entrypoint (port 8443, configured in
-    `docker-compose.override.yml` and `traefik/dynamic.yml`), which
-    terminates TLS with `RequireAndVerifyClientCert` against the
-    step-ca intermediate CA and then sets `MTLS_CLIENT_CERT_HEADER`
-    from the leaf via the `passTLSClientCert` middleware. Reaching this
-    dependency over any other ingress (the regular `https` entrypoint,
-    direct hits to backend:8000 in dev, etc.) leaves the header
-    attacker-controlled — entrypoint isolation is what backs the trust
-    boundary. mTLS-06 routes will use this dep on the upload path only.
+    arrives via a Traefik mTLS entrypoint that terminates TLS with
+    `RequireAndVerifyClientCert` against the device CA and sets
+    `MTLS_CLIENT_CERT_HEADER` from the verified leaf via the
+    `passTLSClientCert` middleware. Reaching this dep over any other
+    ingress (plain HTTPS without client-cert verification, direct hits
+    to backend:8000) leaves the header attacker-controlled —
+    entrypoint isolation is the trust boundary. The dev stack runs no
+    proxy (FU-11) so this dep is only exercised via tests that
+    hand-stuff the header; prod-side mTLS wiring is the deferred
+    follow-up to mTLS-05.
 
     Header format: Traefik's `passTLSClientCert.pem` middleware emits the
     leaf URL-encoded — newlines as `%0A`, `+` left as literal `+` because

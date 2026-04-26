@@ -94,9 +94,7 @@ docker compose watch
 | Frontend | <http://localhost:5173> |
 | Adminer (DB) | <http://localhost:8080> |
 | Mailcatcher (SMTP UI) | <http://localhost:1080> |
-| Traefik dashboard | <http://localhost:8090> |
 | step-ca | <https://localhost:9000> |
-| mTLS entrypoint (upload route) | <https://localhost:8443> |
 
 Seed the first superuser:
 
@@ -147,7 +145,7 @@ Production deployments target a single Linux host running Docker Compose, fronte
 - A host with Docker and Docker Compose v2.
 - Public DNS for the API hostname (e.g. `api.example.com`) and the frontend host.
 - A `.env.prod` populated with rotated secrets (do **not** ship with placeholder values; see [SECURITY.md](./SECURITY.md)).
-- A Traefik instance with HTTPS termination on `:443` for the API and frontend, plus the dedicated mTLS entrypoint on `:8443` for `/api/v1/upload/` (see `traefik/dynamic.yml` for the file-provider config the dev stack uses; production needs the device-CA file mounted into whichever Traefik runs at the edge).
+- A Traefik instance with HTTPS termination on `:443` for the API and frontend, plus a dedicated mTLS entrypoint for `/api/v1/upload/` configured with `RequireAndVerifyClientCert` against the device CA and a `passTLSClientCert` middleware (the device-CA file needs to be mounted into whichever Traefik runs at the edge). The dev stack runs no proxy at all — devs and tests hit services on their mapped host ports.
 
 Migrations apply automatically on backend start via `prestart`; new migrations are committed under `backend/app/alembic/versions/` and picked up at boot.
 

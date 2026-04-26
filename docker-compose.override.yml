@@ -4,83 +4,9 @@ services:
   # Production should use only docker-compose.yml (and any prod-specific
   # files like docker-compose.traefik.yml), without this override.
   #
-  # Local services are available on their ports, but also available on:
-  # http://api.localhost.tiangolo.com: backend
-  # http://dashboard.localhost.tiangolo.com: frontend
-  # etc. To enable it, update .env, set:
-  # DOMAIN=localhost.tiangolo.com
-  proxy:
-    image: traefik:v3.4
-    depends_on:
-      step-ca:
-        condition: service_healthy
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
-      # Subpath mount: expose only the public CA certs dir (intermediate +
-      # root), not the secrets/ siblings. Tighter than the backend's
-      # /home/step-ca:ro mount; FU-13 should narrow that to match.
-      - type: volume
-        source: step-ca
-        target: /etc/traefik/step-ca/certs
-        read_only: true
-        volume:
-          subpath: certs
-    ports:
-      - "80:80"
-      - "8090:8080"
-      # mTLS entrypoint (mTLS-05). Devices POST /api/v1/upload here with a
-      # client cert signed by the step-ca intermediate.
-      - "8443:8443"
-    env_file:
-      - .env.dev
-      # Duplicate the command from docker-compose.yml to add --api.insecure=true
-    command:
-      # Enable Docker in Traefik, so that it reads labels from Docker services
-      - --providers.docker
-      # Add a constraint to only use services with the label for this stack
-      - --providers.docker.constraints=Label(`traefik.constraint-label`, `traefik-public`)
-      # Do not expose all Docker services, only the ones explicitly exposed
-      - --providers.docker.exposedbydefault=false
-      # File provider for the mTLS-05 dynamic config (tls.options, passTLS
-      # middleware, mtls router/service). --watch lets traefik pick up
-      # edits without a restart.
-      - --providers.file.filename=/etc/traefik/dynamic.yml
-      - --providers.file.watch=true
-      # Create an entrypoint "http" listening on port 80
-      - --entrypoints.http.address=:80
-      # Create an entrypoint "https" listening on port 443
-      - --entrypoints.https.address=:443
-      # mTLS entrypoint. RequireAndVerifyClientCert is enforced via the
-      # `default` named TLS options registered in traefik/dynamic.yml.
-      # Traefik's TLS manager applies `default` at handshake time when
-      # no SNI-matched named option wins, so it covers any SNI a station
-      # might send. The `default` options apply to every TLS handshake
-      # on every entrypoint of this proxy instance — safe in dev because
-      # no other TLS routes terminate here (frontend talks HTTP in dev,
-      # FU-11 keeps the docker provider broken so the WI-14 https
-      # routers never come up).
-      - --entrypoints.mtls.address=:8443
-      # Enable the access log, with HTTP requests
-      - --accesslog
-      # Enable the Traefik log, for configurations and errors
-      - --log
-      # Enable debug logging for local development
-      - --log.level=DEBUG
-      # Enable the Dashboard and API
-      - --api
-      # Enable the Dashboard and API in insecure mode for local development
-      - --api.insecure=true
-    labels:
-      # Enable Traefik for this service, to make it available in the public network
-      - traefik.enable=true
-      - traefik.constraint-label=traefik-public
-      # Dummy https-redirect middleware that doesn't really redirect, only to
-      # allow running it locally
-      - traefik.http.middlewares.https-redirect.contenttype.autodetect=false
-    networks:
-      - traefik-public
-      - default
+  # Dev runs no Traefik (FU-11). Devs and tests hit each service on its
+  # mapped host port; the prod stack is fronted by a separately-deployed
+  # Traefik per docker-compose.traefik.yml + deployment.md.
 
   db:
     restart: "no"
