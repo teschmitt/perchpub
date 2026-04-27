@@ -12,8 +12,12 @@ a binary in git.
 """
 
 import io
+import os
+import tempfile
 from pathlib import Path
 
+import cv2 as cv
+import numpy as np
 import pytest
 import tensorflow as tf
 from minio import Minio
@@ -74,3 +78,22 @@ def seed_minio(minio_client: Minio, tflite_model_bytes: bytes) -> None:
         data=io.BytesIO(labels),
         length=len(labels),
     )
+
+
+@pytest.fixture(scope="session")
+def video_bytes() -> bytes:
+    """5-frame 32x32 mp4 (~4 KB) for the worker to fetch and classify."""
+    rng = np.random.default_rng(0)
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as fp:
+        path = fp.name
+    try:
+        writer = cv.VideoWriter(
+            path, cv.VideoWriter_fourcc(*"mp4v"), 2.0, (32, 32)
+        )
+        for _ in range(5):
+            writer.write(rng.integers(0, 255, (32, 32, 3), dtype=np.uint8))
+        writer.release()
+        with open(path, "rb") as fh:
+            return fh.read()
+    finally:
+        os.unlink(path)
