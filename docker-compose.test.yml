@@ -36,10 +36,23 @@ services:
     profiles: ["disabled"]
 
   step-ca:
-    profiles: ["disabled"]
+    restart: "no"
+    env_file:
+      - .env.test
+    ports:
+      - "9001:9000"
+    environment:
+      # .env.test sets STEP_CA_URL=https://localhost:9001 for the host-side
+      # test process. Inside the container, step-ca's built-in healthcheck
+      # (`step ca health`) reads STEP_CA_URL too — and the CA listens on
+      # :9000 from its own POV, so we override here.
+      - STEP_CA_URL=https://localhost:9000
 
   step-ca-provisioner-init:
-    profiles: ["disabled"]
+    env_file:
+      - .env.test
+    environment:
+      - STEP_CA_URL=https://step-ca:9000
 
   worker:
     restart: "no"
@@ -60,6 +73,12 @@ services:
       prestart:
         condition: service_completed_successfully
       minio-init:
+        condition: service_completed_successfully
+      # Worker doesn't *use* the JWK, but declaring the dep lets
+      # `compose up --wait` treat step-ca-provisioner-init's clean exit
+      # as expected — without a downstream service_completed_successfully
+      # somewhere, --wait flags the one-shot exit as a wait failure.
+      step-ca-provisioner-init:
         condition: service_completed_successfully
     command:
       - huey_consumer.py
