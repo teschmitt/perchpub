@@ -1,0 +1,123 @@
+# Integration-test compose override. Brings up the prod-shaped stack with
+# Hetzner Garage replaced by an in-stack `minio` (+ `minio-init` bucket
+# creator), test-only host port mappings to coexist with a running dev
+# stack, and the slow / unrelated services (frontend, adminer, backend,
+# step-ca) disabled via the `disabled` profile so WI-INT-3 only boots
+# what the worker integration test needs.
+#
+# Drive via `backend/scripts/integration-test.sh`; manual:
+#
+#   docker compose --env-file .env.test \
+#     -f docker-compose.yml -f docker-compose.test.yml up -d --wait
+
+services:
+
+  db:
+    restart: "no"
+    env_file:
+      - .env.test
+    ports:
+      - "5433:5432"
+
+  prestart:
+    env_file:
+      - .env.test
+    environment:
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=5432
+
+  backend:
+    profiles: ["disabled"]
+
+  frontend:
+    profiles: ["disabled"]
+
+  adminer:
+    profiles: ["disabled"]
+
+  step-ca:
+    profiles: ["disabled"]
+
+  step-ca-provisioner-init:
+    profiles: ["disabled"]
+
+  worker:
+    restart: "no"
+    env_file:
+      - .env.test
+    environment:
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=5432
+      - HUEY_REDIS_HOST=redis
+      - HUEY_REDIS_PORT=6379
+      - GARAGE_ENDPOINT=minio:9000
+      - GARAGE_USE_TLS=False
+    depends_on: !override
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      prestart:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    command:
+      - huey_consumer.py
+      - app.tasks.huey_client
+      - -k
+      - process
+      - -w
+      - "1"
+
+  redis:
+    restart: "no"
+    env_file:
+      - .env.test
+    ports:
+      - "6380:6379"
+
+  minio:
+    image: minio/minio:latest
+    restart: "no"
+    networks:
+      - default
+    environment:
+      MINIO_ROOT_USER: ${GARAGE_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${GARAGE_SECRET}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9100:9000"
+      - "9101:9001"
+
+  # One-shot: waits for minio to accept connections (retry loop, since the
+  # minio image's healthcheck is unreliable across versions), creates the
+  # test bucket, then exits 0. Worker depends on this completing.
+  minio-init:
+    image: minio/mc:latest
+    restart: "no"
+    networks:
+      - default
+    depends_on:
+      minio:
+        condition: service_started
+    env_file:
+      - .env.test
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        attempts=0
+        until mc alias set test http://minio:9000 "$$GARAGE_KEY_ID" "$$GARAGE_SECRET" >/dev/null 2>&1; do
+          attempts=$$((attempts + 1))
+          if [ $$attempts -ge 30 ]; then
+            echo "minio not ready after 30 attempts" >&2
+            exit 1
+          fi
+          sleep 1
+        done
+        mc mb "test/$$GARAGE_BUCKET_NAME" --ignore-existing
+
+networks:
+  traefik-public:
+    external: false

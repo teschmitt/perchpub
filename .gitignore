@@ -2,8 +2,11 @@
 .env
 .env.*
 !.env.example
+!.env.test
 pki/
 PLAN.md
+
+classification/
 
 .vscode
 node_modules/
