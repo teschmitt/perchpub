@@ -104,6 +104,8 @@ jobs:
       - name: Sync deps (host pytest needs the venv)
         run: uv sync --frozen
         working-directory: backend
+      - name: Provision .env.prod placeholder for compose env_file append
+        run: cp .env.example .env.prod
       - name: Run integration tests
         run: bash scripts/integration-test.sh
         working-directory: backend
