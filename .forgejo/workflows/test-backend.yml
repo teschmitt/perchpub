@@ -59,7 +59,11 @@ jobs:
       - name: Bring up db + mailcatcher
         run: docker compose --env-file .env.dev up -d db mailcatcher
       - name: Migrate DB
-        run: uv run bash scripts/prestart.sh
+        run: |
+          set -a
+          . ../.env.dev
+          set +a
+          uv run bash scripts/prestart.sh
         working-directory: backend
       - name: Run tests
         run: uv run bash scripts/tests-start.sh "Coverage for ${{ github.sha }}"
