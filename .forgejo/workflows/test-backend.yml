@@ -52,8 +52,10 @@ jobs:
         with:
           version: "0.4.15"
           enable-cache: true
-      - name: Provision .env.dev from .env.example for CI
-        run: cp .env.example .env.dev
+      - name: Provision .env.{dev,prod} from .env.example for CI
+        run: |
+          cp .env.example .env.dev
+          cp .env.example .env.prod
       - name: Bring up db + mailcatcher
         run: docker compose --env-file .env.dev up -d db mailcatcher
       - name: Migrate DB
