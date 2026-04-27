@@ -119,6 +119,12 @@ def test_worker_classifies_video_and_persists_observation(
     assert obs is not None
     assert obs.station_id == station.id
     assert obs.object_name == object_name
-    # Either of the seeded species (when the top label clears the 0.3
-    # threshold) or NULL (random weights — softmax may stay below it).
-    assert obs.species_id in {negative.id, positive.id, None}
+    # Either a Species whose classification_id matches one of the labels
+    # (when the top label clears the 0.3 threshold) or NULL (random weights —
+    # softmax may stay below it). Look up by FK rather than comparing UUIDs:
+    # the compose-smoke test seeds the same labels, and `_lookup_species_id`
+    # returns the oldest matching row, so its UUID may differ from ours.
+    if obs.species_id is not None:
+        resolved = db.get(Species, obs.species_id)
+        assert resolved is not None
+        assert resolved.classification_id in (0, 1)

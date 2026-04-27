@@ -27,7 +27,31 @@ services:
       - POSTGRES_PORT=5432
 
   backend:
-    profiles: ["disabled"]
+    restart: "no"
+    env_file:
+      - .env.test
+    ports:
+      - "8001:8000"
+    environment:
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=5432
+      - HUEY_REDIS_HOST=redis
+      - HUEY_REDIS_PORT=6379
+      - GARAGE_ENDPOINT=minio:9000
+      - GARAGE_USE_TLS=False
+      - STEP_CA_URL=https://step-ca:9000
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import httpx
+          httpx.get("http://localhost:8000/api/v1/utils/health-check/").raise_for_status()
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
 
   frontend:
     profiles: ["disabled"]
