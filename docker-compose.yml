@@ -256,6 +256,11 @@ services:
       - DOCKER_STEPCA_INIT_ADDRESS=:9000
       - DOCKER_STEPCA_INIT_REMOTE_MANAGEMENT=true
       - DOCKER_STEPCA_INIT_PROVISIONER_NAME=admin
+      # Pin the admin password to the env file at first init (FU-19) so
+      # `step-ca-provisioner-init` can authenticate without scraping the
+      # auto-generated value from container logs. No-op for already-
+      # initialized volumes; only takes effect on a fresh `step-ca` volume.
+      - DOCKER_STEPCA_INIT_PASSWORD=${STEP_CA_ADMIN_PASSWORD?Variable not set}
 
   # Idempotent init: ensures the backend-device-enrollment JWK provisioner
   # exists on the running CA, then writes the decrypted private JWK to the
