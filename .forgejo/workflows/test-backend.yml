@@ -8,8 +8,34 @@ on:
     types:
       - opened
       - synchronize
+      - reopened
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Python
+        uses: https://github.com/actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: https://github.com/astral-sh/setup-uv@v7
+        with:
+          version: "0.4.15"
+          enable-cache: true
+      - name: Sync deps
+        run: uv sync --frozen
+        working-directory: backend
+      - name: Lint (mypy + ruff check + ruff format --check)
+        run: uv run bash scripts/lint.sh
+        working-directory: backend
+
   test-backend:
     runs-on: ubuntu-latest
     steps:
@@ -26,16 +52,16 @@ jobs:
         with:
           version: "0.4.15"
           enable-cache: true
-      - run: docker compose down -v --remove-orphans
-      - run: docker compose up -d db mailcatcher
+      - name: Bring up db + mailcatcher
+        run: docker compose --env-file .env.dev up -d db mailcatcher
       - name: Migrate DB
         run: uv run bash scripts/prestart.sh
         working-directory: backend
       - name: Run tests
         run: uv run bash scripts/tests-start.sh "Coverage for ${{ github.sha }}"
         working-directory: backend
-      - run: docker compose down -v --remove-orphans
       - name: Store coverage files
+        if: always()
         uses: https://github.com/actions/upload-artifact@v6
         with:
           name: coverage-html
@@ -43,4 +69,40 @@ jobs:
           include-hidden-files: true
       - name: Coverage report
         run: uv run coverage report --fail-under=90
+        working-directory: backend
+      - name: Tear down
+        if: always()
+        run: docker compose --env-file .env.dev down -v --remove-orphans
+
+  test-backend-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: https://github.com/actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: https://github.com/astral-sh/setup-uv@v7
+        with:
+          version: "0.4.15"
+          enable-cache: true
+      - name: Set up Docker Buildx
+        uses: https://github.com/docker/setup-buildx-action@v3
+      - name: Sync deps (host pytest needs the venv)
+        run: uv sync --frozen
+        working-directory: backend
+      - name: Run integration tests
+        run: bash scripts/integration-test.sh
+        working-directory: backend
+      - name: Tear down (safety net; trap in script also handles it)
+        if: always()
+        run: |
+          docker compose --env-file ../.env.test \
+            -f ../docker-compose.yml -f ../docker-compose.test.yml \
+            down -v --remove-orphans
         working-directory: backend
