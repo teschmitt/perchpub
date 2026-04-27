@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: perchpub
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -37,7 +37,7 @@ jobs:
         working-directory: backend
 
   test-backend:
-    runs-on: ubuntu-latest
+    runs-on: perchpub
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -75,7 +75,7 @@ jobs:
         run: docker compose --env-file .env.dev down -v --remove-orphans
 
   test-backend-integration:
-    runs-on: ubuntu-latest
+    runs-on: perchpub
     timeout-minutes: 20
     steps:
       - name: Checkout
