@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     GARAGE_KEY_ID: str = ""
     GARAGE_SECRET: str = ""
     GARAGE_USE_TLS: bool = True
+    # SigV4 credential-scope region. Default "garage" preserves Garage(dev)
+    # and Minio(test) behaviour; OVH prod sets this to "gra" (lowercase —
+    # the S3 signature region, distinct from the uppercase "GRA" OVH API
+    # region). A mismatch against the bucket's region yields
+    # SignatureDoesNotMatch on OVH.
+    GARAGE_REGION: str = "garage"
 
     MAX_UPLOAD_BYTES: int = 50 * 1024 * 1024
 
