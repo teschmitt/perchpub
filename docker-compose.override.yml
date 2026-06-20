@@ -1,12 +1,12 @@
 services:
 
   # This override file is intended for local development only.
-  # Production should use only docker-compose.yml (and any prod-specific
-  # files like docker-compose.traefik.yml), without this override.
+  # Production composes docker-compose.yml + docker-compose.prod.yml (the
+  # prod overlay), without this override.
   #
   # Dev runs no Traefik (FU-11). Devs and tests hit each service on its
-  # mapped host port; the prod stack is fronted by a separately-deployed
-  # Traefik per docker-compose.traefik.yml + deployment.md.
+  # mapped host port; the prod stack runs an in-stack Traefik edge per
+  # docker-compose.prod.yml + deployment.md.
 
   db:
     restart: "no"

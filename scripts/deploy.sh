@@ -1,5 +1,8 @@
 #! /usr/bin/env sh
 
+# LEGACY: Docker Swarm deploy, superseded by deploy/terraform + docker-compose.prod.yml.
+# Kept for reference only; not part of the current OVH/Terraform deployment path.
+
 # Exit in case of error
 set -e
 
