@@ -23,8 +23,3 @@ output "s3_secret_access_key" {
   value       = ovh_cloud_project_user_s3_credential.media.secret_access_key
   sensitive   = true
 }
-
-output "ns_repoint_reminder" {
-  description = "One-time manual step (D2)."
-  value       = "Ensure the OVH DNS zone for ${var.domain} exists and Namecheap NS are repointed to OVH's nameservers (ns##.ovh.net / dns##.ovh.net). TF manages records, not registrar NS."
-}
