@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+ovh_cloud_project_id = "0123456789abcdef0123456789abcdef"
+owner_email          = "t.e.schmitt@posteo.de"
+ssh_pubkey           = "ssh-ed25519 AAAA... you@host"
+
+# Recommended: narrow SSH to your own address.
+# ssh_allowed_cidr   = "203.0.113.4/32"
+
+# Optional overrides (defaults shown):
+# region          = "GRA"
+# flavor_name     = "b3-8"
+# image_name      = "Debian 12"
+# domain          = "perchpub.net"
+# repo_url        = "https://codeberg.org/perchpub/perchpub.git"
+# volume_size_gb  = 40
+# bucket_name     = "perchpub-bucket"
