@@ -8,7 +8,15 @@
 services:
 
   traefik:
-    image: traefik:3.1
+    # Pinned to v3.7.5 (NOT :latest/:3/:v3 — those will roll into a breaking v4).
+    # Traefik < 3.6.1's docker provider hardcoded Docker API v1.24 and never
+    # negotiated (DOCKER_API_VERSION was ignored). Docker 29's daemon rejects
+    # v1.24 ("client version 1.24 is too old"), so the provider reads NO labels,
+    # no routers load, and every request 404s. v3.6.1+ auto-negotiates the API
+    # version (traefik PR #12256). Provider/entrypoint/ACME/log CLI flags are
+    # unchanged 3.1 -> 3.7, so this image bump is config-transparent; acme.json
+    # is reused from the bound volume (no re-issue).
+    image: traefik:v3.7.5
     restart: always
     networks:
       - traefik-public
@@ -62,10 +70,18 @@ services:
       - traefik.http.middlewares.https-redirect.redirectscheme.permanent=true
 
 volumes:
+  # acme.json (Let's Encrypt certs) on the block volume too, so an instance
+  # rebuild reuses the existing certs instead of re-issuing every one (LE
+  # rate limits). cloud-init creates /mnt/perchpub-data/acme before up.
   traefik-certificates:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/perchpub-data/acme
   # Bind the stateful named volumes to the attached block volume so Postgres
   # data and the step-ca root survive instance rebuild/replacement (§9).
-  # cloud-init creates /mnt/perchpub-data/{pgdata,redis,step-ca} before up.
+  # cloud-init creates /mnt/perchpub-data/{acme,pgdata,redis,step-ca} before up.
   pgdata:
     driver: local
     driver_opts:

@@ -20,19 +20,40 @@ write_files:
           tcp dport 22 ip saddr ${ssh_allowed_cidr} accept
           tcp dport { 80, 443, 8443 } accept
         }
-        chain forward { type filter hook forward priority 0; policy drop; }
+        chain forward {
+          type filter hook forward priority 0; policy drop;
+          # Permit Docker's bridge forwarding: container egress, return traffic,
+          # and DNAT'd inbound to published ports (Traefik :80/:443/:8443). Without
+          # these accepts the drop policy blocks ALL container networking — DNS
+          # lookups inside `docker build` fail and published ports are unreachable.
+          # (In nftables a drop here is final even if Docker's own table accepts.)
+          ct state established,related accept
+          iifname "docker0" accept
+          oifname "docker0" accept
+          iifname "br-*" accept
+          oifname "br-*" accept
+        }
         chain output  { type filter hook output  priority 0; policy accept; }
       }
 
 runcmd:
+  # --- Firewall (BEFORE Docker) ---
+  # Apply nftables before installing/starting Docker so the `flush ruleset` in
+  # /etc/nftables.conf does not wipe the NAT/filter rules Docker installs at
+  # startup (which would silently break container networking).
+  - systemctl enable --now nftables
+  - nft -f /etc/nftables.conf
+
   # --- Docker install (official convenience script) ---
   - curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
   - sh /tmp/get-docker.sh
+  # get.docker.com does not reliably create the `docker` group; without it
+  # docker.socket fails to start (sd-chown: "Failed to resolve group docker",
+  # status=216/GROUP), docker.service fails its Requires=docker.socket, and the
+  # daemon never starts — so the whole stack silently never comes up. Create it
+  # explicitly (idempotent) before enabling docker.
+  - groupadd -f docker
   - systemctl enable --now docker
-
-  # --- Firewall ---
-  - systemctl enable --now nftables
-  - nft -f /etc/nftables.conf
 
   # --- Block volume: find the unmounted data disk, format once, mount ---
   - |
@@ -45,10 +66,11 @@ runcmd:
     mkdir -p /mnt/perchpub-data
     grep -q "/mnt/perchpub-data" /etc/fstab || echo "$${DEV} /mnt/perchpub-data ext4 defaults,nofail 0 2" >> /etc/fstab
     mount -a
-    mkdir -p /mnt/perchpub-data/pgdata /mnt/perchpub-data/redis /mnt/perchpub-data/step-ca
+    mkdir -p /mnt/perchpub-data/acme /mnt/perchpub-data/pgdata /mnt/perchpub-data/redis /mnt/perchpub-data/step-ca
 
   # --- Clone repo + render env + bring the stack up ---
-  - git clone ${repo_url} /opt/perchpub || (cd /opt/perchpub && git pull)
+  - git clone ${repo_url} /opt/perchpub || (cd /opt/perchpub && git fetch --all --tags)
+  - git -C /opt/perchpub checkout ${repo_ref}
   - |
     cat > /opt/perchpub/.env.prod <<'ENVEOF'
     ENVIRONMENT=production
