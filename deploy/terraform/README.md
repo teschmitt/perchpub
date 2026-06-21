@@ -50,6 +50,12 @@ first `apply`.
    source ~/Downloads/openrc.sh        # prompts for the OpenStack user password
    ```
 
+   **`OS_REGION_NAME` decides where the instance + block volume land** — it is
+   *not* `var.region`. Pick the region matching `var.region`'s geo when you
+   download the openrc (Frankfurt compute = `DE1`, paired with object-storage
+   `var.region = DE`). Mismatching them puts the VM and the bucket in different
+   datacenters. Verify with `echo "$OS_REGION_NAME"` after sourcing.
+
 3. **Public Cloud project id** — copy the project's `service_name` (a 32-char
    hex id) into `ovh_cloud_project_id` in `terraform.tfvars`.
 
@@ -140,7 +146,8 @@ terraform output -raw s3_secret_access_key   # sensitive
 
 4. **Persistence** — reboot or replace the instance and confirm Postgres data
    and the step-ca root survive (they live on the block volume at
-   `/mnt/perchpub-data`, bound into the `pgdata` / `redis` / `step-ca` volumes).
+   `/mnt/perchpub-data`, bound into the `pgdata` / `redis` / `step-ca` /
+   `traefik-certificates` volumes).
 
 ---
 
@@ -148,18 +155,49 @@ terraform output -raw s3_secret_access_key   # sensitive
 
 - **State**: local + gitignored (D5). Keep `terraform.tfstate` private and
   backed up — it holds every generated secret.
-- **Region**: one knob, `var.region` (default `GRA`, uppercase OVH API casing).
-  The S3 signature region is derived lowercase (`gra`) and rendered as
-  `GARAGE_REGION`. Change `region` to `DE` / `SBG` / `WAW` to move regions.
+- **Region** — there are **two** region namespaces, and they use different
+  codes for the same datacenter:
+  - `var.region` (default `DE` / Frankfurt, uppercase geo code) sets **object
+    storage only** — the S3 bucket (`storage.tf`) and the
+    `s3.<region>.io.cloud.ovh.net` endpoint + lowercase SigV4 region (`de`)
+    rendered as `GARAGE_REGION`. Move it with `GRA` / `SBG` / `WAW`.
+  - `OS_REGION_NAME` (from your sourced openrc, §2.2) sets the **instance +
+    block volume** region — Frankfurt is `DE1`, not `DE`. The `compute.tf`
+    OpenStack resources take no explicit `region`, so they follow this.
+
+  To move the whole stack to a new datacenter you must change **both**, keeping
+  them in the same geo (e.g. `var.region = DE` with `OS_REGION_NAME = DE1`).
 - **SSH exposure**: `ssh_allowed_cidr` defaults to `0.0.0.0/0`. Narrow it to
   your address; the host `nftables` firewall (cloud-init) is the ingress
   enforcement mechanism — OVH security groups do **not** reliably filter
   `Ext-Net` ingress, so the attached security group is egress-intent only.
 
+- **Redeploy / replace the instance** — the supported "deploy anew" path,
+  and it **preserves data**. The block volume (Postgres + step-ca device CA +
+  acme.json) survives an instance rebuild because it lives on
+  `/mnt/perchpub-data`. Replace only the box:
+
   ```bash
-  terraform destroy
+  terraform apply -replace=openstack_compute_instance_v2.app
   ```
 
-  tears down the instance, block volume, DNS records, and the S3 bucket.
-  **Objects in the bucket are deleted — back up media first.** The OVH DNS
-  zone itself and the registrar NS are left untouched (created manually).
+  cloud-init re-mounts the existing volume (it reformats *only* a blank disk,
+  `cloud-init.yaml.tftpl`), re-renders `.env.prod` from the **same** secrets in
+  state, checks out `var.repo_ref` (default `main` — pin to a tag/SHA for a
+  reproducible rebuild), and brings the stack back up against the existing DB +
+  CA. The public IP changes; `dns.tf` updates the A records, so allow for DNS
+  TTL before the smoke test passes.
+
+  > **Secrets live in Terraform state; data lives on the volume — they must
+  > stay in sync.** If you lose or restore-stale the local state, the
+  > regenerated `POSTGRES_PASSWORD` / `STEP_CA_ADMIN_PASSWORD` no longer match
+  > the surviving volume and the backend will refuse to boot (prestart and
+  > `step-ca-provisioner-init` fail auth). Back up `terraform.tfstate`.
+
+- **Teardown** — the block volume and the S3 bucket carry `prevent_destroy`
+  (`compute.tf` / `storage.tf`), so `terraform destroy` **refuses by design**,
+  protecting the DB, the device CA, and all media from an accidental wipe. To
+  intentionally tear everything down, remove those two `lifecycle` blocks
+  first, then run `terraform destroy`. **Back up media + a `pg_dump` first** —
+  the bucket objects and the volume are then deleted for good. The OVH DNS zone
+  itself and the registrar NS are left untouched (created manually).

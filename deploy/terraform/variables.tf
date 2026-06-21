@@ -4,9 +4,15 @@ variable "ovh_cloud_project_id" {
 }
 
 variable "region" {
-  description = "OVH region (API casing, uppercase). EU default GRA."
+  # NOTE: this sets ONLY the object-storage region — the S3 bucket (storage.tf)
+  # and the s3.<region>.io.cloud.ovh.net endpoint + SigV4 region (compute.tf).
+  # It does NOT place the instance/volume: those inherit the OpenStack region
+  # from OS_REGION_NAME in your sourced openrc. The two namespaces differ —
+  # Frankfurt object storage is "DE" but its compute region is "DE1". Keep them
+  # in the same geo (var.region=DE  ⇔  OS_REGION_NAME=DE1).
+  description = "OVH object-storage region (uppercase geo code). EU default DE (Frankfurt)."
   type        = string
-  default     = "GRA"
+  default     = "DE"
 }
 
 variable "flavor_name" {
@@ -18,7 +24,7 @@ variable "flavor_name" {
 variable "image_name" {
   description = "OpenStack image name."
   type        = string
-  default     = "Debian 12"
+  default     = "Debian 13"
 }
 
 variable "domain" {
@@ -43,10 +49,28 @@ variable "ssh_allowed_cidr" {
   default     = "0.0.0.0/0"
 }
 
+variable "create_egress_secgroup" {
+  # OVH provisions a tiny default security_group quota on fresh projects (often
+  # just 1, already consumed by the mandatory "default" group), so creating this
+  # one fails with OverQuota. It's egress-intent-only anyway — real ingress
+  # filtering is done by host nftables (cloud-init) — so it defaults OFF and the
+  # instance falls back to the "default" group. Flip to true only after raising
+  # the security_group quota (OVH Control Panel → Quota and Regions → Increase).
+  description = "Create the dedicated egress security group (needs security_group quota > 1)."
+  type        = bool
+  default     = false
+}
+
 variable "repo_url" {
   description = "Public git URL cloned on the box and built with compose."
   type        = string
   default     = "https://codeberg.org/perchpub/perchpub.git"
+}
+
+variable "repo_ref" {
+  description = "Git ref (branch, tag, or commit SHA) checked out on the box. Pin to a tag/SHA for a reproducible instance replacement; a branch name tracks its HEAD."
+  type        = string
+  default     = "main"
 }
 
 variable "volume_size_gb" {

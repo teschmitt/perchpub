@@ -7,10 +7,11 @@ ssh_pubkey           = "ssh-ed25519 AAAA... you@host"
 # ssh_allowed_cidr   = "203.0.113.4/32"
 
 # Optional overrides (defaults shown):
-# region          = "GRA"
+# region          = "DE"
 # flavor_name     = "b3-8"
-# image_name      = "Debian 12"
+# image_name      = "Debian 13"
 # domain          = "perchpub.net"
 # repo_url        = "https://codeberg.org/perchpub/perchpub.git"
+# repo_ref        = "main"   # pin to a tag/SHA for a reproducible instance rebuild
 # volume_size_gb  = 40
 # bucket_name     = "perchpub-bucket"

@@ -28,6 +28,13 @@ resource "ovh_cloud_project_storage" "media" {
   service_name = var.ovh_cloud_project_id
   region_name  = var.region
   name         = var.bucket_name
+
+  # Media objects are user data; guard against an accidental `terraform
+  # destroy` deleting the bucket. Intentional teardown means removing this
+  # block first (README §5).
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # Least-privilege policy scoping the user to this one bucket.
