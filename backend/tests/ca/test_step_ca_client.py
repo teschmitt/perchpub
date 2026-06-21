@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -38,6 +39,31 @@ def provisioner_jwk(tmp_path: Path) -> dict[str, Any]:
     return {"path": jwk_path, "private_key": private_key, "dict": jwk_dict}
 
 
+@pytest.fixture
+def root_cert_path(tmp_path: Path) -> str:
+    """A throwaway self-signed cert on disk so httpx.AsyncClient(verify=...)
+    can build its TLS context. sign_device_csr mocks the request, so this cert
+    is never used on the wire — it only has to exist and parse, which decouples
+    the unit test from STEP_CA_ROOT_CERT_PATH's container default
+    (/home/step-ca/certs/root_ca.crt, absent on a dev host).
+    """
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test-root-ca")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(UTC))
+        .not_valid_after(datetime.now(UTC) + timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    cert_path = tmp_path / "root_ca.crt"
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    return str(cert_path)
+
+
 def _make_csr(common_name: str = "device-001.local") -> str:
     private_key = ec.generate_private_key(ec.SECP256R1())
     csr = (
@@ -49,9 +75,12 @@ def _make_csr(common_name: str = "device-001.local") -> str:
 
 
 def test_sign_device_csr_builds_correct_ott(
-    provisioner_jwk: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    provisioner_jwk: dict[str, Any],
+    root_cert_path: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "STEP_CA_JWK_PATH", str(provisioner_jwk["path"]))
+    monkeypatch.setattr(settings, "STEP_CA_ROOT_CERT_PATH", root_cert_path)
     monkeypatch.setattr(settings, "STEP_CA_PROVISIONER_NAME", "device-enrollment")
     monkeypatch.setattr(settings, "STEP_CA_URL", "http://step-ca.test:9000")
 
@@ -109,9 +138,12 @@ def test_sign_device_csr_builds_correct_ott(
 
 
 def test_sign_device_csr_falls_back_to_provisioner_name_when_csr_has_no_cn(
-    provisioner_jwk: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    provisioner_jwk: dict[str, Any],
+    root_cert_path: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "STEP_CA_JWK_PATH", str(provisioner_jwk["path"]))
+    monkeypatch.setattr(settings, "STEP_CA_ROOT_CERT_PATH", root_cert_path)
     monkeypatch.setattr(settings, "STEP_CA_PROVISIONER_NAME", "device-enrollment")
     monkeypatch.setattr(settings, "STEP_CA_URL", "http://step-ca.test:9000")
 
