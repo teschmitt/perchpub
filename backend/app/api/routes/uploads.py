@@ -22,7 +22,7 @@ garage_client = Minio(
     access_key=settings.GARAGE_KEY_ID,
     secret_key=settings.GARAGE_SECRET,
     secure=settings.GARAGE_USE_TLS,
-    region="garage",
+    region=settings.GARAGE_REGION,
 )
 
 _CHUNK_SIZE = 64 * 1024

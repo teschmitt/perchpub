@@ -1,0 +1,93 @@
+# Production overlay — in-stack Traefik edge + block-volume binds.
+# Bring the stack up with:
+#   docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Supersedes the standalone docker-compose.traefik.yml (removed): a single
+# host lets Traefik mount step-ca's device CA over the shared step-ca volume
+# and enforce station mTLS on :8443.
+services:
+
+  traefik:
+    image: traefik:3.1
+    restart: always
+    networks:
+      - traefik-public
+      - default
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8443:8443"
+    depends_on:
+      # Start after step-ca + provisioner-init have populated certs/ (backend
+      # gates on step-ca-provisioner-init completing); the file provider reads
+      # /certs/*.crt at load time.
+      backend:
+        condition: service_started
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=traefik-public
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.http.address=:80
+      - --entrypoints.https.address=:443
+      - --entrypoints.mtls.address=:8443
+      - --certificatesresolvers.le.acme.email=${EMAIL?Variable not set}
+      - --certificatesresolvers.le.acme.storage=/certificates/acme.json
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      - --accesslog
+      - --log
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certificates:/certificates
+      - ./deploy/traefik/dynamic:/etc/traefik/dynamic:ro
+      # Device CA (root + intermediate) for the mtls clientAuth, read-only
+      # from the shared step-ca volume's certs/ subpath.
+      - type: volume
+        source: step-ca
+        target: /certs
+        read_only: true
+        volume:
+          subpath: certs
+    labels:
+      # Enable label parsing on this container so the @docker https-redirect
+      # middleware below is registered. No router is defined for Traefik
+      # itself (no dashboard exposed in prod).
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      # https-redirect@docker — referenced bare by the backend/adminer/frontend
+      # http routers in docker-compose.yml. Ported from the old standalone
+      # docker-compose.traefik.yml.
+      - traefik.http.middlewares.https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.https-redirect.redirectscheme.permanent=true
+
+volumes:
+  traefik-certificates:
+  # Bind the stateful named volumes to the attached block volume so Postgres
+  # data and the step-ca root survive instance rebuild/replacement (§9).
+  # cloud-init creates /mnt/perchpub-data/{pgdata,redis,step-ca} before up.
+  pgdata:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/perchpub-data/pgdata
+  redis:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/perchpub-data/redis
+  step-ca:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/perchpub-data/step-ca
+
+networks:
+  # Pin the name so the existing `traefik.docker.network=traefik-public`
+  # labels resolve (base compose declares this external: true).
+  traefik-public:
+    external: false
+    name: traefik-public

@@ -1,0 +1,100 @@
+#cloud-config
+package_update: true
+package_upgrade: false
+
+write_files:
+  # nftables ruleset — host firewall is the ingress enforcement mechanism
+  # (OVH security groups do not reliably filter Ext-Net ingress, §5).
+  - path: /etc/nftables.conf
+    permissions: "0755"
+    content: |
+      #!/usr/sbin/nft -f
+      flush ruleset
+      table inet filter {
+        chain input {
+          type filter hook input priority 0; policy drop;
+          ct state established,related accept
+          iif "lo" accept
+          ip protocol icmp accept
+          ip6 nexthdr ipv6-icmp accept
+          tcp dport 22 ip saddr ${ssh_allowed_cidr} accept
+          tcp dport { 80, 443, 8443 } accept
+        }
+        chain forward { type filter hook forward priority 0; policy drop; }
+        chain output  { type filter hook output  priority 0; policy accept; }
+      }
+
+runcmd:
+  # --- Docker install (official convenience script) ---
+  - curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+  - sh /tmp/get-docker.sh
+  - systemctl enable --now docker
+
+  # --- Firewall ---
+  - systemctl enable --now nftables
+  - nft -f /etc/nftables.conf
+
+  # --- Block volume: find the unmounted data disk, format once, mount ---
+  - |
+    set -euxo pipefail
+    # The attached volume is the block device with no mountpoint and no
+    # partitions that is not the root disk. VERIFY at first apply with lsblk.
+    DEV=$(lsblk -dpno NAME,TYPE,MOUNTPOINT | awk '$2=="disk" && $3==""{print $1}' | grep -v -E "$(findmnt -no SOURCE / | sed 's/[0-9]*$//')" | head -n1)
+    if [ -z "$${DEV}" ]; then echo "no data disk found" >&2; exit 1; fi
+    if ! blkid "$${DEV}"; then mkfs.ext4 -F "$${DEV}"; fi
+    mkdir -p /mnt/perchpub-data
+    grep -q "/mnt/perchpub-data" /etc/fstab || echo "$${DEV} /mnt/perchpub-data ext4 defaults,nofail 0 2" >> /etc/fstab
+    mount -a
+    mkdir -p /mnt/perchpub-data/pgdata /mnt/perchpub-data/redis /mnt/perchpub-data/step-ca
+
+  # --- Clone repo + render env + bring the stack up ---
+  - git clone ${repo_url} /opt/perchpub || (cd /opt/perchpub && git pull)
+  - |
+    cat > /opt/perchpub/.env.prod <<'ENVEOF'
+    ENVIRONMENT=production
+    DOMAIN=${domain}
+    FRONTEND_HOST=https://dashboard.${domain}
+    BACKEND_CORS_ORIGINS=https://${domain},https://dashboard.${domain}
+    PROJECT_NAME=PerchPub
+    STACK_NAME=perchpub
+
+    EMAIL=${owner_email}
+    FIRST_SUPERUSER=${owner_email}
+    FIRST_SUPERUSER_PASSWORD=${first_superuser_password}
+    SECRET_KEY=${secret_key}
+    ENROLLMENT_HMAC_KEY_HEX=${enrollment_hmac_hex}
+
+    POSTGRES_SERVER=localhost
+    POSTGRES_PORT=5432
+    POSTGRES_DB=app
+    POSTGRES_USER=postgres
+    POSTGRES_PASSWORD=${postgres_password}
+
+    DOCKER_IMAGE_BACKEND=perchpub-api
+    DOCKER_IMAGE_FRONTEND=perchpub-frontend
+    TAG=latest
+
+    GARAGE_BUCKET_NAME=${s3_bucket}
+    GARAGE_ENDPOINT=${s3_endpoint}
+    GARAGE_USE_TLS=True
+    GARAGE_REGION=${s3_region}
+    GARAGE_KEY_ID=${s3_key_id}
+    GARAGE_SECRET=${s3_secret}
+
+    CA_NAME=PerchPubCA
+    STEP_CA_URL=https://step-ca:9000
+    STEP_CA_PROVISIONER_NAME=backend-device-enrollment
+    STEP_CA_ADMIN_PASSWORD=${step_ca_admin_password}
+    STEP_CA_JWK_PATH=/home/step-ca/backend-provisioner.jwk
+
+    CLASSIFICATION_MODEL_OBJECT_NAME=birdiary-v0.1/classify.tflite
+    CLASSIFICATION_LABELS_OBJECT_NAME=birdiary-v0.1/labels.txt
+
+    HUEY_CLIENT_NAME=perchpub
+    HUEY_REDIS_HOST=redis
+    HUEY_REDIS_PORT=6379
+    ENVEOF
+  - chmod 600 /opt/perchpub/.env.prod
+  - |
+    cd /opt/perchpub
+    docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d --build

@@ -1,0 +1,14 @@
+# Local, gitignored TF state (D5) and anything secret-bearing.
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+# tfvars hold the project id / ssh key — keep only the example.
+*.tfvars
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json

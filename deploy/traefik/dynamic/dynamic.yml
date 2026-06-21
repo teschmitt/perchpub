@@ -1,0 +1,58 @@
+# Traefik file-provider dynamic config (loaded via
+# --providers.file.directory=/etc/traefik/dynamic). Carries ONLY the mTLS
+# edge wiring. The https-redirect middleware is intentionally a @docker
+# middleware (defined on the Traefik service in docker-compose.prod.yml) so
+# the existing bare `middlewares=https-redirect` labels in docker-compose.yml
+# resolve to https-redirect@docker.
+#
+# Hardcodes api.perchpub.net and the device-CA container paths. If DOMAIN
+# ever changes, update the router rule below.
+
+tls:
+  options:
+    mtls:
+      # Stations MUST present a client certificate, verified against the
+      # device CA. Reaching the backend's /api/v1/upload/ over any other
+      # entrypoint leaves the cert header attacker-controlled — entrypoint
+      # isolation is the trust boundary (see app/api/deps.py docstring).
+      clientAuth:
+        clientAuthType: RequireAndVerifyClientCert
+        # Both files: device leaf certs are issued by the step-ca
+        # intermediate (backend verifies verify_directly_issued_by(intermediate)
+        # in deps.py); including the root lets Traefik build the full chain
+        # whether or not the station presents the intermediate in the
+        # handshake. VERIFY at first apply: if the handshake fails with
+        # "unknown certificate authority", confirm which CA actually signs
+        # device leaves and adjust this list (see Task 3 Step 4).
+        caFiles:
+          - /certs/root_ca.crt
+          - /certs/intermediate_ca.crt
+      minVersion: VersionTLS12
+
+http:
+  middlewares:
+    pass-client-cert:
+      # pem: true emits the verified leaf as X-Forwarded-Tls-Client-Cert,
+      # URL-encoded with the PEM armor stripped. The backend decodes with
+      # urllib.parse.unquote (NOT unquote_plus) and re-attaches the armor —
+      # contract documented in app/api/deps.py:113-127.
+      passTLSClientCert:
+        pem: true
+
+  routers:
+    mtls-upload:
+      rule: "Host(`api.perchpub.net`) && PathPrefix(`/api/v1/upload/`)"
+      entryPoints:
+        - mtls
+      service: backend-mtls
+      middlewares:
+        - pass-client-cert
+      tls:
+        certResolver: le
+        options: mtls
+
+  services:
+    backend-mtls:
+      loadBalancer:
+        servers:
+          - url: "http://backend:8000"
