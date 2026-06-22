@@ -66,7 +66,14 @@ runcmd:
     mkdir -p /mnt/perchpub-data
     grep -q "/mnt/perchpub-data" /etc/fstab || echo "$${DEV} /mnt/perchpub-data ext4 defaults,nofail 0 2" >> /etc/fstab
     mount -a
-    mkdir -p /mnt/perchpub-data/acme /mnt/perchpub-data/pgdata /mnt/perchpub-data/redis /mnt/perchpub-data/step-ca
+    # Fail loudly if the (nofail) mount didn't take — otherwise the bind dirs
+    # below land on the root disk and silently defeat the block-volume
+    # persistence guarantee, surfacing only as data loss on instance rebuild.
+    findmnt /mnt/perchpub-data >/dev/null || { echo "block volume not mounted at /mnt/perchpub-data" >&2; exit 1; }
+    # Every bind-mounted named volume in docker-compose.prod.yml needs its
+    # source dir to pre-exist (docker's local driver won't create it, it errors
+    # at `up`). Keep this list in sync with the `device:` paths there.
+    for d in acme pgdata redis step-ca; do mkdir -p "/mnt/perchpub-data/$${d}"; done
 
   # --- Clone repo + render env + bring the stack up ---
   - git clone ${repo_url} /opt/perchpub || (cd /opt/perchpub && git fetch --all --tags)
