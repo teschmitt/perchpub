@@ -12,14 +12,18 @@ in tests/ca/test_step_ca_client.py.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import httpx
+import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.serialization import Encoding
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from cryptography.x509.oid import NameOID
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
@@ -94,12 +98,13 @@ def test_create_session_requires_auth(client: TestClient) -> None:
     assert r.status_code == 401
 
 
+@pytest.mark.parametrize("key_type", ["ec", "ed25519"])
 def test_full_enrollment_creates_station_with_spki_pin(
-    client: TestClient, db: Session
+    client: TestClient, db: Session, key_type: str
 ) -> None:
     operator, headers = _operator(db, client)
     enrollment = _create_session(client, headers)
-    csr_pem = make_csr("device-001.local")
+    csr_pem = make_csr("device-001.local", key_type=key_type)
 
     async def _fake_sign(csr: str) -> SignedCertificate:
         return _signed_cert_for(csr)
@@ -117,12 +122,21 @@ def test_full_enrollment_creates_station_with_spki_pin(
     assert body["ca_chain_pem"].startswith("-----BEGIN CERTIFICATE-----")
     station_id = uuid.UUID(body["station_id"])
 
+    # The issued leaf preserves the CSR's key type, and the station pin is
+    # SHA-256 of that leaf's SPKI (DER) regardless of key algorithm.
+    leaf = x509.load_pem_x509_certificate(body["certificate_pem"].encode("utf-8"))
+    expected_pub = Ed25519PublicKey if key_type == "ed25519" else EllipticCurvePublicKey
+    assert isinstance(leaf.public_key(), expected_pub)
+    leaf_spki_der = leaf.public_key().public_bytes(
+        Encoding.DER, PublicFormat.SubjectPublicKeyInfo
+    )
+
     station = db.get(Station, station_id)
     assert station is not None
     assert station.owner_id == operator.id
     assert station.latitude == 47.5
     assert station.longitude == 8.7
-    assert station.spki_sha256 is not None
+    assert station.spki_sha256 == hashlib.sha256(leaf_spki_der).hexdigest()
     assert len(station.spki_sha256) == 64
 
     token = db.get(EnrollmentToken, enrollment.session_id)

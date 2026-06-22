@@ -13,6 +13,8 @@ from collections.abc import Generator
 from unittest.mock import MagicMock
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import Encoding
 from fastapi import HTTPException
 from sqlmodel import Session
@@ -107,10 +109,15 @@ def test_no_station_with_matching_pin_returns_401(
     assert exc.value.detail == "client certificate required"
 
 
+@pytest.mark.parametrize("key_type", ["ec", "ed25519"])
 def test_valid_leaf_returns_matching_station(
-    db: Session, device_ca: mtls.TestCA
+    db: Session, device_ca: mtls.TestCA, key_type: str
 ) -> None:
-    leaf = mtls.make_leaf(device_ca, "device-mtls04.local")
+    leaf = mtls.make_leaf(device_ca, "device-mtls04.local", key_type=key_type)
+    # Station identity resolves on SHA-256(SPKI) regardless of the leaf's key
+    # algorithm: an Ed25519 station authenticates exactly like an EC P-256 one.
+    expected_pub = Ed25519PublicKey if key_type == "ed25519" else EllipticCurvePublicKey
+    assert isinstance(leaf.cert.public_key(), expected_pub)
     persisted = _persist_station(db, spki_pin=leaf.spki_sha256_hex)
     encoded = urllib.parse.quote(leaf.cert_pem)
     station = get_current_station(

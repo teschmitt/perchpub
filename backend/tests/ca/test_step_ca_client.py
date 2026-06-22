@@ -19,7 +19,7 @@ import jwt
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from cryptography.x509.oid import NameOID
 from jwt.algorithms import ECAlgorithm
@@ -64,27 +64,42 @@ def root_cert_path(tmp_path: Path) -> str:
     return str(cert_path)
 
 
-def _make_csr(common_name: str = "device-001.local") -> str:
-    private_key = ec.generate_private_key(ec.SECP256R1())
+def _make_csr(
+    common_name: str = "device-001.local", *, key_type: str = "ed25519"
+) -> str:
+    # Ed25519 is the recommended default device key; EC P-256 stays supported.
+    # The (key, algorithm) pair is selected together: Ed25519 signs with no
+    # hash, EC/RSA require one.
+    private_key: ed25519.Ed25519PrivateKey | ec.EllipticCurvePrivateKey
+    if key_type == "ed25519":
+        private_key = ed25519.Ed25519PrivateKey.generate()
+        algorithm = None
+    elif key_type == "ec":
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        algorithm = hashes.SHA256()
+    else:
+        raise ValueError(f"unsupported key_type: {key_type!r}")
     csr = (
         x509.CertificateSigningRequestBuilder()
         .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)]))
-        .sign(private_key, hashes.SHA256())
+        .sign(private_key, algorithm)
     )
     return csr.public_bytes(serialization.Encoding.PEM).decode("utf-8")
 
 
+@pytest.mark.parametrize("key_type", ["ec", "ed25519"])
 def test_sign_device_csr_builds_correct_ott(
     provisioner_jwk: dict[str, Any],
     root_cert_path: str,
     monkeypatch: pytest.MonkeyPatch,
+    key_type: str,
 ) -> None:
     monkeypatch.setattr(settings, "STEP_CA_JWK_PATH", str(provisioner_jwk["path"]))
     monkeypatch.setattr(settings, "STEP_CA_ROOT_CERT_PATH", root_cert_path)
     monkeypatch.setattr(settings, "STEP_CA_PROVISIONER_NAME", "device-enrollment")
     monkeypatch.setattr(settings, "STEP_CA_URL", "http://step-ca.test:9000")
 
-    csr_pem = _make_csr("device-001.local")
+    csr_pem = _make_csr("device-001.local", key_type=key_type)
     captured: dict[str, Any] = {}
 
     async def fake_post(self: Any, url: str, **kwargs: Any) -> Any:
