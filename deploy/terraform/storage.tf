@@ -38,16 +38,22 @@ resource "ovh_cloud_project_storage" "media" {
 }
 
 # Least-privilege policy scoping the user to this one bucket.
+#
+# OVH expects the AWS-IAM-style schema with CAPITALIZED keys
+# (Statement/Sid/Effect/Action/Resource) and Effect "Allow". Lowercase keys
+# (statements/effect/action/resource) are silently dropped as unknown, leaving
+# an EMPTY policy ({"Statement":[]} in state) — which denies every S3 action
+# and surfaces as AccessDenied on upload. No Version field on OVH.
 resource "ovh_cloud_project_user_s3_policy" "media" {
   service_name = var.ovh_cloud_project_id
   user_id      = ovh_cloud_project_user.s3.id
   policy = jsonencode({
-    statements = [
+    Statement = [
       {
-        sid    = "perchpub-bucket-rw"
-        effect = "allow"
-        action = ["s3:*"]
-        resource = [
+        Sid    = "perchpub-bucket-rw"
+        Effect = "Allow"
+        Action = ["s3:*"]
+        Resource = [
           "arn:aws:s3:::${var.bucket_name}",
           "arn:aws:s3:::${var.bucket_name}/*",
         ]
