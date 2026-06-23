@@ -196,3 +196,66 @@ def test_sign_device_csr_falls_back_to_provisioner_name_when_csr_has_no_cn(
         audience="http://step-ca.test:9000/1.0/sign",
     )
     assert payload["sub"] == "device-enrollment"
+
+
+def test_sign_device_csr_authorizes_csr_sans_over_default_cn(
+    provisioner_jwk: dict[str, Any],
+    root_cert_path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: perchstation's rcgen CSR leaves the CommonName at rcgen's
+    default ("rcgen self signed cert") and carries the real station identity in
+    a DNS SAN. The OTT must authorize the CSR's SANs (and use the SAN as the
+    subject) — otherwise step-ca 403s with "certificate request does not contain
+    the valid DNS names - got [station-enrollment], want [rcgen self signed
+    cert]" and enrollment fails with a 502.
+    """
+    monkeypatch.setattr(settings, "STEP_CA_JWK_PATH", str(provisioner_jwk["path"]))
+    monkeypatch.setattr(settings, "STEP_CA_ROOT_CERT_PATH", root_cert_path)
+    monkeypatch.setattr(settings, "STEP_CA_PROVISIONER_NAME", "device-enrollment")
+    monkeypatch.setattr(settings, "STEP_CA_URL", "http://step-ca.test:9000")
+
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    csr = (
+        x509.CertificateSigningRequestBuilder()
+        .subject_name(
+            x509.Name(
+                [x509.NameAttribute(NameOID.COMMON_NAME, "rcgen self signed cert")]
+            )
+        )
+        .add_extension(
+            x509.SubjectAlternativeName([x509.DNSName("station-enrollment")]),
+            critical=False,
+        )
+        .sign(private_key, None)
+    )
+    csr_pem = csr.public_bytes(serialization.Encoding.PEM).decode("utf-8")
+    captured: dict[str, Any] = {}
+
+    async def fake_post(self: Any, url: str, **kwargs: Any) -> Any:
+        captured["body"] = kwargs.get("json")
+
+        class _Resp:
+            def json(self) -> dict[str, Any]:
+                return {
+                    "crt": "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n",
+                    "ca": "-----BEGIN CERTIFICATE-----\nfake-ca\n-----END CERTIFICATE-----\n",
+                }
+
+            def raise_for_status(self) -> None:
+                return None
+
+        return _Resp()
+
+    with patch("httpx.AsyncClient.post", new=fake_post):
+        asyncio.run(sign_device_csr(csr_pem))
+
+    payload = jwt.decode(
+        captured["body"]["ott"],
+        key=provisioner_jwk["private_key"].public_key(),
+        algorithms=["ES256"],
+        audience="http://step-ca.test:9000/1.0/sign",
+    )
+    # The OTT must authorize what the CSR actually requests, not the rcgen CN.
+    assert payload.get("sans") == ["station-enrollment"]
+    assert payload["sub"] == "station-enrollment"

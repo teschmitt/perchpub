@@ -64,6 +64,16 @@ def _csr_subject_common_name(csr_pem: str) -> str | None:
     return str(cn_attrs[0].value)
 
 
+def _csr_dns_sans(csr_pem: str) -> list[str]:
+    """Return the CSR's DNS SubjectAltNames (empty if it has none)."""
+    csr = x509.load_pem_x509_csr(csr_pem.encode("utf-8"))
+    try:
+        ext = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+    except x509.ExtensionNotFound:
+        return []
+    return ext.value.get_values_for_type(x509.DNSName)
+
+
 def _build_provisioner_jwt(csr_pem: str, *, lifetime: int = 300) -> str:
     """Create a short-lived OTT JWT bound to this CSR for the JWK provisioner.
 
@@ -74,7 +84,13 @@ def _build_provisioner_jwt(csr_pem: str, *, lifetime: int = 300) -> str:
     exp = now + timedelta(seconds=lifetime)
 
     jwk = _load_provisioner_jwk()
-    sub = _csr_subject_common_name(csr_pem) or settings.STEP_CA_PROVISIONER_NAME
+    # Prefer the SAN as the identity: stations put their real name in the DNS
+    # SAN and may leave the CSR CommonName at a tool default (e.g. rcgen's
+    # "rcgen self signed cert"). Fall back to the CN, then the provisioner name.
+    sans = _csr_dns_sans(csr_pem)
+    sub = (
+        sans[0] if sans else _csr_subject_common_name(csr_pem)
+    ) or settings.STEP_CA_PROVISIONER_NAME
 
     payload: dict[str, Any] = {
         "iss": settings.STEP_CA_PROVISIONER_NAME,
@@ -85,6 +101,11 @@ def _build_provisioner_jwt(csr_pem: str, *, lifetime: int = 300) -> str:
         "nbf": int(now.timestamp()),
         "exp": int(exp.timestamp()),
     }
+    # Authorize exactly the SANs the CSR requests. Without this, step-ca defaults
+    # the allowed SANs to [sub] and 403s any CSR whose SAN differs from the
+    # subject ("does not contain the valid DNS names").
+    if sans:
+        payload["sans"] = sans
 
     headers: dict[str, Any] = {}
     if jwk.key_id:
