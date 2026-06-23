@@ -75,13 +75,8 @@ services:
     depends_on:
       minio-init:
         condition: service_completed_successfully
-    command:
-      - huey_consumer.py
-      - app.tasks.huey_client
-      - -k
-      - process
-      - -w
-      - "4"
+    # `command:` (huey_consumer) now lives in the base docker-compose.yml so
+    # prod gets it too; no override needed here.
 
   mailcatcher:
     image: schickling/mailcatcher

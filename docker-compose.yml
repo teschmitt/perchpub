@@ -172,6 +172,19 @@ services:
   worker:
     image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
     restart: always
+    # The image's default CMD is `fastapi run` (the API server). The worker
+    # must instead run the Huey consumer — otherwise prod (which composes this
+    # file + docker-compose.prod.yml, WITHOUT the dev override) silently boots
+    # a second API server, nothing drains the Redis queue, and uploads pile up
+    # forever at ClassifyTask.status="Prepared". `-k process -w 4` mirrors the
+    # dev override so behaviour is identical across environments.
+    command:
+      - huey_consumer.py
+      - app.tasks.huey_client
+      - -k
+      - process
+      - -w
+      - "4"
     networks:
       - default
     depends_on:
