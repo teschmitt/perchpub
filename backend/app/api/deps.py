@@ -110,14 +110,15 @@ def get_current_station(session: SessionDep, request: Request) -> Station:
     hand-stuff the header; prod-side mTLS wiring is the deferred
     follow-up to mTLS-05.
 
-    Header format: Traefik's `passTLSClientCert.pem` middleware emits the
-    leaf URL-encoded — newlines as `%0A`, `+` left as literal `+` because
-    it's a valid base64 char and Traefik's escape doesn't treat headers
-    as form-data. Use `urllib.parse.unquote` (NOT `unquote_plus`):
-    `unquote_plus` would decode `+` → space and corrupt the base64 body.
-    Traefik 3.x's `pem: true` strips the `-----BEGIN/END CERTIFICATE-----`
-    armor and forwards just the base64 body, so we re-attach the armor
-    when missing before parsing.
+    Header format: Traefik's `passTLSClientCert.pem` middleware forwards the
+    whole verified client chain as a **comma-separated** list of certificates,
+    leaf first (observed in prod: `<leaf_b64>,<intermediate_b64>`). Each entry
+    is the base64 DER body with the `-----BEGIN/END CERTIFICATE-----` armor
+    stripped (Traefik 3.x). We take the first entry (the leaf), re-attach the
+    armor, and parse it — splitting on the comma is load-bearing: wrapping the
+    whole blob in one PEM block puts the leaf's `=` padding mid-stream and
+    fails with `InvalidByte`. `unquote` (NOT `unquote_plus`) decodes any %0A
+    newlines while leaving `+` — a valid base64 char — intact.
 
     Failure handling: every failure path collapses to 401 with the same
     generic detail. We do not distinguish between "header missing",
@@ -130,7 +131,11 @@ def get_current_station(session: SessionDep, request: Request) -> Station:
         raise _GENERIC_MTLS_401
 
     try:
-        decoded = urllib.parse.unquote(encoded).strip().encode("utf-8")
+        # Take the leaf (first entry) from Traefik's comma-separated chain and
+        # re-attach the PEM armor it strips. Splitting before re-armoring is
+        # load-bearing — see the docstring's "Header format" note.
+        leaf_b64 = urllib.parse.unquote(encoded).split(",", 1)[0].strip()
+        decoded = leaf_b64.encode("utf-8")
         if b"-----BEGIN CERTIFICATE-----" not in decoded:
             decoded = (
                 b"-----BEGIN CERTIFICATE-----\n"

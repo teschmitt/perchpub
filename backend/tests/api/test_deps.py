@@ -149,3 +149,33 @@ def test_valid_leaf_body_only_no_armor_returns_matching_station(
         request=_request({settings.MTLS_CLIENT_CERT_HEADER: encoded}),
     )
     assert station.id == persisted.id
+
+
+def _traefik_body(cert_pem: str) -> str:
+    """Armor-stripped, single-line base64 DER body, as Traefik forwards each
+    chain entry (no BEGIN/END markers, no internal newlines)."""
+    return (
+        cert_pem.replace("-----BEGIN CERTIFICATE-----", "")
+        .replace("-----END CERTIFICATE-----", "")
+        .replace("\n", "")
+    )
+
+
+def test_traefik_chain_header_pins_the_leaf(
+    db: Session, device_ca: mtls.TestCA
+) -> None:
+    """Traefik's `passTLSClientCert.pem: true` forwards the *whole verified
+    chain* as a comma-separated list of armor-stripped base64 certs, leaf
+    first (observed in prod: `<leaf_b64>,<intermediate_b64>`). The dependency
+    must pin the leaf, not choke on the intermediate's base64 trailing the
+    leaf's `=` padding (regression: `InvalidByte` PEM-parse failure → 401).
+    """
+    leaf = mtls.make_leaf(device_ca, "device-chain.local")
+    persisted = _persist_station(db, spki_pin=leaf.spki_sha256_hex)
+    header = f"{_traefik_body(leaf.cert_pem)},{_traefik_body(device_ca.cert_pem)}"
+    station = get_current_station(
+        session=db,
+        request=_request({settings.MTLS_CLIENT_CERT_HEADER: header}),
+    )
+    assert station.id == persisted.id
+    assert station.spki_sha256 == leaf.spki_sha256_hex
