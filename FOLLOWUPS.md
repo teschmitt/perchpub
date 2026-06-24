@@ -161,7 +161,7 @@ Compressed to one-line summaries; full context in commit messages.
   (`ClassifyTask.status="Prepared"`, `LLEN huey.redis.perchpub` climbing)
   but never classified. Moved the `command:` into the base compose so
   every environment gets it; dropped the now-redundant override copy.
-- **FU-25 (c1b4da6)** `mtls-station-auth-rejects-traefik-cert-chain`:
+- **FU-25 (d99aa12)** `mtls-station-auth-rejects-traefik-cert-chain`:
   `get_current_station` ([backend/app/api/deps.py](backend/app/api/deps.py))
   assumed `X-Forwarded-Tls-Client-Cert` held a single cert. Traefik's
   `passTLSClientCert(pem: true)` forwards the whole verified chain as
