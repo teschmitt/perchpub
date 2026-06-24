@@ -79,6 +79,32 @@ Issues found during audit / mTLS-arc remediation. Format matches
   HTTP/1.1 is a stopgap. Recorded here so the next person doesn't
   re-debug the backend.
 
+- **FU-28** `classify-task-read-is-unauthenticated-and-unscoped`: the
+  classify-task GET handlers
+  ([backend/app/api/routes/classify_tasks.py](backend/app/api/routes/classify_tasks.py))
+  take only `SessionDep` — no `CurrentUser`, no `CurrentStation`, no
+  per-station filter. `GET /api/v1/classify-task/{id}` returns any task by
+  UUID and `GET /api/v1/classify-task/` enumerates every task across all
+  stations, exposing `file_metadata`, `object_name`, `station_id`, and the
+  linked observation. These are **already** reachable unauthenticated on
+  the public `:443` edge (`backend-https` routes all of
+  `Host(api.${DOMAIN})` in [docker-compose.yml](docker-compose.yml)), so
+  the gap pre-dates the mTLS work; adding the `:8443` `mtls-classify-task`
+  router (this change — fixes the station-poll 404) is strictly *more*
+  restrictive on its path (requires an enrolled station cert) and does not
+  widen the exposure. Not fixed here because the same handler is the
+  intended frontend/admin (JWT-user) read path: bolting `CurrentStation`
+  on would break that path and the four anonymous unit tests in
+  [test_classify_tasks.py](backend/tests/api/routes/test_classify_tasks.py),
+  and change the public contract. Durable fix: a dual-auth dependency
+  (superuser **or** the calling station) and scope the queries by the
+  station that owns the upload (`select(ClassifyTask).join(Upload).where(
+  Upload.station_id == current_station.id)` — `ClassifyTask` has no direct
+  `station_id`, it joins through `Upload`). The `:8443` router already
+  forwards the verified leaf via `pass-client-cert`, so the station
+  identity is available the moment scoping lands — no Traefik change
+  needed then.
+
 ## Resolved
 
 Compressed to one-line summaries; full context in commit messages.

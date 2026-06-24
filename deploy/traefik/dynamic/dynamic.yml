@@ -51,6 +51,28 @@ http:
         certResolver: le
         options: mtls
 
+    mtls-classify-task:
+      # After uploading, the station polls GET /api/v1/classify-task/{id} for
+      # the classification result. Its outbound allowlist permits only the mTLS
+      # upload base (:8443) — the same boundary as upload — so the poll arrives
+      # on this entrypoint, NOT the :443 public edge. Without this router
+      # Traefik's no-route handler 404s every poll and the station treats it as
+      # terminal (classify.lost). Mirrors mtls-upload exactly: same backend-mtls
+      # service, same RequireAndVerifyClientCert client-auth against the device
+      # CA (tls.options: mtls), so only an enrolled station reaches the backend.
+      # pass-client-cert forwards the verified leaf so the station identity is
+      # available to the backend for any future per-station scoping (the GET
+      # handler is unscoped today — see app/api/routes/classify_tasks.py).
+      rule: "Host(`api.perchpub.net`) && PathPrefix(`/api/v1/classify-task/`)"
+      entryPoints:
+        - mtls
+      service: backend-mtls
+      middlewares:
+        - pass-client-cert
+      tls:
+        certResolver: le
+        options: mtls
+
   services:
     backend-mtls:
       loadBalancer:
