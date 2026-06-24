@@ -102,3 +102,48 @@ docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod
 ```
 
 The backend never needs the admin password directly; only `step-ca-provisioner-init` does, and only on first boot (subsequent runs short-circuit because the provisioner already exists).
+
+#### Generating a device key + CSR (station enrollment)
+
+A station enrolls by generating its **own** keypair + CSR and POSTing the CSR to `/api/v1/enrollment/confirm/{session_id}`. The backend forwards it to step-ca and pins `SHA-256(SubjectPublicKeyInfo)` of the issued leaf as the station identity. The **station** chooses the key type — the server accepts any key algorithm and enforces none — and the issued leaf preserves the CSR's key type.
+
+**Ed25519 is the recommended default** for new stations: smaller and faster to generate on Raspberry Pi-class hardware. **EC P-256 remains fully supported** as an alternative.
+
+**OpenSSL** — Ed25519 (recommended; note there is **no** `-sha256`, an Ed25519 CSR carries no separate hash):
+
+```bash
+openssl genpkey -algorithm ed25519 -out device.key
+openssl req -new -key device.key -subj '/CN=station-01' -out device.csr
+```
+
+EC P-256 (supported alternative):
+
+```bash
+openssl ecparam -genkey -name prime256v1 -noout -out device.key
+openssl req -new -key device.key -subj '/CN=station-01' -sha256 -out device.csr
+```
+
+**Python (`cryptography`)** — Ed25519 signs the CSR with **no** hash algorithm (`.sign(key, None)`); EC/RSA pass `hashes.SHA256()`:
+
+```python
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519
+from cryptography.x509.oid import NameOID
+
+subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "station-01")])
+
+# Ed25519 (recommended default): no hash algorithm.
+key = ed25519.Ed25519PrivateKey.generate()
+csr = x509.CertificateSigningRequestBuilder().subject_name(subject).sign(key, None)
+
+# EC P-256 (supported alternative): SHA-256.
+# key = ec.generate_private_key(ec.SECP256R1())
+# csr = x509.CertificateSigningRequestBuilder().subject_name(subject).sign(key, hashes.SHA256())
+
+csr_pem = csr.public_bytes(serialization.Encoding.PEM).decode("utf-8")
+# POST csr_pem to /api/v1/enrollment/confirm/{session_id}; keep `key` on the
+# station to present the issued leaf on mTLS uploads.
+```
+
+The `device.crt` / `device.key` used by the post-apply smoke test ([deploy/terraform/README.md](./deploy/terraform/README.md) §4) are, respectively, the leaf returned by enrollment for this CSR and the private key generated here.

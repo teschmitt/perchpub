@@ -139,6 +139,11 @@ terraform output -raw s3_secret_access_key   # sensitive
      --cert device.crt --key device.key -F "file=@clip.mp4"
    ```
 
+   - **Generating `device.key` + the CSR:** see [deployment.md](../../deployment.md)
+     → "Generating a device key + CSR". Ed25519 is the recommended default
+     (`openssl genpkey -algorithm ed25519 -out device.key`); EC P-256 is
+     supported. `device.crt` is the leaf returned by enrollment for that CSR.
+
    - **caFiles note (from `deploy/traefik/dynamic/dynamic.yml`):** if the
      upload fails the TLS handshake with `tls: unknown certificate authority`,
      the device leaf chains differently than assumed — inspect the `step-ca`
