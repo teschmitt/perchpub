@@ -148,3 +148,26 @@ csr_pem = csr.public_bytes(serialization.Encoding.PEM).decode("utf-8")
 ```
 
 The `device.crt` / `device.key` used by the post-apply smoke test ([deploy/terraform/README.md](./deploy/terraform/README.md) §4) are, respectively, the leaf returned by enrollment for this CSR and the private key generated here.
+
+## Post-deploy smoke test
+
+[`scripts/deploy-smoke.py`](./scripts/deploy-smoke.py) automates the whole station lifecycle against a live deployment as a single command — the manual login → enroll → upload → poll dance in [deploy/terraform/README.md](./deploy/terraform/README.md) §4 condensed into one exit code. It is the canonical post-deploy verification step; run it after `terraform apply` (give DNS + the Let's Encrypt cert time to settle first).
+
+It walks: operator login → enrollment session → device keypair + CSR → step-ca-signed leaf → **real mTLS** media upload (httpx `cert=`, a genuine client-auth handshake against the `:8443` edge — not a hand-stuffed header) → poll `/classify-task/` until an `Observation` is persisted. Exit 0 means the deployment ingested *and classified* an upload end-to-end; a non-zero exit names the failing stage.
+
+The script is self-contained — [PEP 723](https://peps.python.org/pep-0723/) inline metadata declares its only deps (`httpx`, `cryptography`), and a tiny valid MP4 is embedded so no fixture file is needed. Run it with `uv`:
+
+```bash
+PERCHPUB_OPERATOR_PASSWORD=<FIRST_SUPERUSER_PASSWORD> \
+  uv run scripts/deploy-smoke.py \
+    --api-url https://api.perchpub.net \
+    --operator-email <owner_email>
+```
+
+- `--api-url` is the public `:443` base (health, login, enrollment). The mTLS upload/poll base defaults to the same host on `:8443`; override with `--mtls-url` if it differs.
+- The password comes from `$PERCHPUB_OPERATOR_PASSWORD` (read it from the box's `/opt/perchpub/.env.prod` or `terraform output`) or `--operator-password`.
+- `--key-type ed25519` (default) or `ec`; `--media-file PATH` to upload a real clip instead of the embedded sample; `--out-dir` keeps the issued `device.crt` / `device.key` / `ca_chain.pem`.
+- `--no-mtls` skips the real handshake and hand-stuffs the `X-Forwarded-Tls-Client-Cert` header against `--api-url` — for rehearsing the full ingest path against the **dev** stack (no Traefik, FU-11) before a real deploy exists, e.g. `--api-url http://localhost:8001 --no-mtls`.
+- `--cacert` / `--insecure` adjust **server** TLS verification (prod uses a public Let's Encrypt cert, so neither is needed there).
+
+A `Failed` task or a poll timeout is a real signal: most often the classifier model + labels were never seeded into the prod bucket (latent **FU-26** — `_get_classifier()` raises on first task), so the smoke doubles as a model-presence check.

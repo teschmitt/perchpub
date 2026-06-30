@@ -114,6 +114,18 @@ terraform output -raw s3_secret_access_key   # sensitive
 
 ## 4. Post-apply smoke test (§13)
 
+> **One-shot:** [`scripts/deploy-smoke.py`](../../scripts/deploy-smoke.py) automates
+> steps 2–3 below (login → enroll → real-mTLS upload → poll for the Observation)
+> as a single exit code — see [deployment.md](../../deployment.md) →
+> "Post-deploy smoke test". The manual `curl` steps here remain the reference /
+> debugging path. Run the script after DNS + the Let's Encrypt cert settle:
+>
+> ```bash
+> PERCHPUB_OPERATOR_PASSWORD=<FIRST_SUPERUSER_PASSWORD> \
+>   uv run scripts/deploy-smoke.py --api-url https://api.perchpub.net \
+>     --operator-email <owner_email>
+> ```
+
 1. **HTTPS + valid certs** — both resolve with a valid Let's Encrypt cert:
 
    ```bash
