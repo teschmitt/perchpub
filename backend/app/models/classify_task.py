@@ -65,6 +65,8 @@ class ClassifyTask(ClassifyTaskBase, table=True):
 
 class ClassifyTaskPublic(ClassifyTaskBase):
     id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
     upload: UploadPublic
     observation: ObservationPublic | None
 

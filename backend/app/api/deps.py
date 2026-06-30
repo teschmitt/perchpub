@@ -41,21 +41,26 @@ OptionalTokenDep = Annotated[str | None, Depends(optional_oauth2)]
 
 
 def _resolve_user(session: Session, token: str) -> User:
+    # Every "this session is no longer usable" case returns 401 with the same
+    # generic detail, so a backend-for-frontend can treat any 401 as
+    # "clear the cookie" without leaking which case occurred. Authorization
+    # decisions on a *valid* principal (role/ownership) stay 403 elsewhere.
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+    )
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]
         )
         token_data = TokenPayload(**payload)
     except (InvalidTokenError, ValidationError):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Could not validate credentials",
-        )
+        raise credentials_exception
     user = session.get(User, token_data.sub)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise credentials_exception
     if not user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user")
+        raise credentials_exception
     return user
 
 

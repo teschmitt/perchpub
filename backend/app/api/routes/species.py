@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import func, select
+from sqlmodel import col, func, select
 
 from app.api.deps import SessionDep, get_current_active_superuser
 from app.models.species import Species, SpeciesCreate, SpeciesMultiPublic, SpeciesPublic
@@ -19,7 +19,12 @@ def read__multiple_species(
 
     count_statement = select(func.count()).select_from(Species)
     count = session.exec(count_statement).one()
-    statement = select(Species).offset(skip).limit(limit)
+    statement = (
+        select(Species)
+        .order_by(col(Species.scientific_name).asc(), col(Species.id).asc())
+        .offset(skip)
+        .limit(limit)
+    )
     items = session.exec(statement).all()
 
     return SpeciesMultiPublic(data=items, count=count)

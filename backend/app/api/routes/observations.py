@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import func, select
+from sqlmodel import col, func, select
 
 from app.api.deps import SessionDep, get_current_active_superuser
 from app.models.observation import (
@@ -25,7 +25,12 @@ def read_observations(
 
     count_statement = select(func.count()).select_from(Observation)
     count = session.exec(count_statement).one()
-    statement = select(Observation).offset(skip).limit(limit)
+    statement = (
+        select(Observation)
+        .order_by(col(Observation.observed_at).desc(), col(Observation.id).desc())
+        .offset(skip)
+        .limit(limit)
+    )
     observations = session.exec(statement).all()
 
     return ObservationsPublic(data=observations, count=count)

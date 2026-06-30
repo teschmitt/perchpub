@@ -53,6 +53,9 @@ def read_stations(
         count_statement = count_statement.where(visibility)
         statement = statement.where(visibility)
     count = session.exec(count_statement).one()
+    statement = statement.order_by(
+        col(Station.created_at).desc(), col(Station.id).desc()
+    )
     stations = session.exec(statement.offset(skip).limit(limit)).all()
 
     return StationsPublic(data=stations, count=count)

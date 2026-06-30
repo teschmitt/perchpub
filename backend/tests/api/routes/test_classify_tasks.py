@@ -117,3 +117,38 @@ def test_read_classify_task_observation_shape(client: TestClient, db: Session) -
         "observed_at",
         "object_name",
     }
+
+
+def test_read_classify_task_includes_timestamps(
+    client: TestClient, db: Session
+) -> None:
+    task = _create_classify_task(db)
+    r = client.get(f"{settings.API_V1_STR}/classify-task/{task.id}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["created_at"] is not None
+    assert body["updated_at"] is not None
+
+
+def test_list_classify_tasks_includes_timestamps(
+    client: TestClient, db: Session
+) -> None:
+    task = _create_classify_task(db)
+    r = client.get(f"{settings.API_V1_STR}/classify-task/", params={"limit": 1000})
+    assert r.status_code == 200
+    data = r.json()["data"]
+    for item in data:
+        assert "created_at" in item
+        assert "updated_at" in item
+    mine = next(item for item in data if item["id"] == str(task.id))
+    assert mine["created_at"] is not None
+    assert mine["updated_at"] is not None
+
+
+def test_classify_task_public_schema_declares_timestamps() -> None:
+    from app.main import app
+
+    schema = app.openapi()["components"]["schemas"]["ClassifyTaskPublic"]
+    properties = schema["properties"]
+    assert "created_at" in properties
+    assert "updated_at" in properties

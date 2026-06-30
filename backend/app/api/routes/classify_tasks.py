@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, HTTPException
-from sqlmodel import func, select
+from sqlmodel import col, func, select
 
 from app.api.deps import SessionDep
 from app.models.classify_task import (
@@ -40,6 +40,9 @@ def read_classify_tasks(
         stmt = stmt.where(ClassifyTask.status == status)
     if observation is not None:
         stmt = stmt.where(ClassifyTask.observation_id == observation)
+    stmt = stmt.order_by(
+        col(ClassifyTask.created_at).desc(), col(ClassifyTask.id).desc()
+    )
     stmt = stmt.offset(skip).limit(limit)
     classify_tasks = session.exec(stmt).all()
 
