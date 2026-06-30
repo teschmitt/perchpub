@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/openspec-exec-reminder.sh\"",
+            "timeout": 5,
+            "statusMessage": "Checking for OpenSpec-build intent"
+          }
+        ]
+      }
+    ]
+  }
+}

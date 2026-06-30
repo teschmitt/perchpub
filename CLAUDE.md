@@ -66,6 +66,20 @@ Register new table classes in [backend/app/models/__init__.py](backend/app/model
 
 **Background work.** Huey on Redis. Decorate with `@huey_client.task()` in [backend/app/tasks.py](backend/app/tasks.py); the `worker` docker-compose service runs `huey_consumer`. Do **not** use FastAPI `BackgroundTasks` for anything that needs the TF Lite model — only the worker loads it.
 
+## Executing an OpenSpec change
+
+Changes live in [openspec/changes/](openspec/changes/) (`schema: spec-driven`): `proposal.md` + `design.md` + `tasks.md` + per-capability spec deltas (`### Requirement:` SHALL → `#### Scenario:` WHEN/THEN), archived to [openspec/changes/archive/](openspec/changes/archive/) once shipped (canonical specs accrete under [openspec/specs/](openspec/specs/)).
+
+**`tasks.md` is the plan — do not generate a second one** (no `writing-plans`). Build a change with the superpowers execution disciplines, not by naively checking off tasks:
+
+1. **TDD off the scenarios.** Each `#### Scenario` (WHEN/THEN) in the change's spec deltas is an acceptance test — write it as a failing Playwright/pytest test *first*, then implement the task that makes it pass (`test-driven-development`).
+2. **One change in flight, phases in order.** Work `tasks.md` top to bottom.
+3. **Verify before claiming done** (`verification-before-completion`): run the suite and show the output — frontend `npm run lint && npm run check && npm run test` + Playwright; backend `bash scripts/lint.sh && bash scripts/test.sh` when the change touches `backend/`; and `openspec validate <change-id> --strict`. A checked box is not evidence.
+4. **Review, then archive** — `requesting-code-review` before merge; archiving folds the deltas into [openspec/specs/](openspec/specs/).
+5. Use `systematic-debugging` for failures and `subagent-driven-development` to parallelize independent sibling tasks.
+
+Active change set (frontend rewrite, specs only — not yet implemented): `add-sveltekit-frontend-foundation` (P0) → `add-public-observation-browsing` (P1) → `add-authed-station-management` (P2) → `add-superuser-frontend-tools` (P3). P0's [design.md](openspec/changes/add-sveltekit-frontend-foundation/design.md) is the architecture of record, and P0 is a deploy-model spike (nginx-static → Node SSR, localStorage → BFF cookie) — verify it in the real compose stack, not just unit tests.
+
 ## Gotchas
 
 1. **No env file is auto-loaded by `Settings`.** [backend/app/core/config.py:25-30](backend/app/core/config.py#L25-L30). Every consumer must inject env explicitly: `docker compose --env-file .env.dev …` for dev, `docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml …` for prod (`--env-file` covers both compose-parse-time `${VAR}` substitution and the per-service `env_file:` injection — single source of truth per environment, FU-15; the prod overlay `docker-compose.prod.yml` adds the in-stack Traefik edge + block-volume binds). Host-dev: `set -a && . ../.env.dev && set +a` before `fastapi dev`; `bash scripts/test.sh` sources `../.env.dev` itself when present.
