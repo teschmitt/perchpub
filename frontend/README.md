@@ -1,153 +1,54 @@
-# FastAPI Project - Frontend
+# PerchPub frontend
 
-The frontend is built with [Vite](https://vitejs.dev/), [React](https://reactjs.org/), [TypeScript](https://www.typescriptlang.org/), [TanStack Query](https://tanstack.com/query), [TanStack Router](https://tanstack.com/router) and [Tailwind CSS](https://tailwindcss.com/).
+The PerchPub web UI: a **SvelteKit 2 / Svelte 5** app rendered server-side under
+`@sveltejs/adapter-node`. It replaces the original Full Stack FastAPI Template
+React SPA.
 
-## Frontend development
+## Architecture (P0 foundation)
 
-Before you begin, ensure that you have either the Node Version Manager (nvm) or Fast Node Manager (fnm) installed on your system.
+- **SSR + adapter-node.** Runs as a Node server (`node build`) on port `3000` in
+  production; the browser only ever talks to this same origin.
+- **BFF cookie-session auth.** Login is a server-side form action that exchanges
+  credentials with the backend and stores the JWT in an `httpOnly` `pp_session`
+  cookie. The token never reaches client JavaScript; `src/hooks.server.ts`
+  forwards it as a `Bearer` to the backend over the internal network.
+- **Two routing zones.** `src/routes/(public)` renders without a guard;
+  `src/routes/(app)` is guarded server-side in `+layout.server.ts`.
+- **Typed API client.** `src/lib/api/` is generated from the backend's OpenAPI
+  schema via `openapi-typescript` + `openapi-fetch` — endpoint URLs are never
+  hand-written.
+- **Media** is served same-origin through `src/routes/media/[...path]` which
+  proxies the backend `GET /api/v1/media/{object_name}` endpoint.
 
-* To install fnm follow the [official fnm guide](https://github.com/Schniz/fnm#installation). If you prefer nvm, you can install it using the [official nvm guide](https://github.com/nvm-sh/nvm#installing-and-updating).
+See `../openspec/changes/add-sveltekit-frontend-foundation/design.md` for the
+architecture of record.
 
-* After installing either nvm or fnm, proceed to the `frontend` directory:
-
-```bash
-cd frontend
-```
-* If the Node.js version specified in the `.nvmrc` file isn't installed on your system, you can install it using the appropriate command:
-
-```bash
-# If using fnm
-fnm install
-
-# If using nvm
-nvm install
-```
-
-* Once the installation is complete, switch to the installed version:
-
-```bash
-# If using fnm
-fnm use
-
-# If using nvm
-nvm use
-```
-
-* Within the `frontend` directory, install the necessary NPM packages:
+## Develop
 
 ```bash
 npm install
+npm run dev            # http://localhost:5173 ; expects the backend on :8000
 ```
 
-* And start the live server with the following `npm` script:
+Set `INTERNAL_API_URL` (default `http://localhost:8000`) so server-side `load`
+and form actions can reach the backend.
+
+## Regenerate the typed API client
+
+Run against a backend whose `app.main` is importable (env loaded):
 
 ```bash
-npm run dev
+./scripts/generate-client.sh    # dumps openapi.json → src/lib/api/schema.d.ts
 ```
 
-* Then open your browser at http://localhost:5173/.
+## Commands
 
-Notice that this live server is not running inside Docker, it's for local development, and that is the recommended workflow. Once you are happy with your frontend, you can build the frontend Docker image and start it, to test it in a production-like environment. But building the image at every change will not be as productive as running the local development server with live reload.
-
-Check the file `package.json` to see other available options.
-
-### Removing the frontend
-
-If you are developing an API-only app and want to remove the frontend, you can do it easily:
-
-* Remove the `./frontend` directory.
-
-* In the `docker-compose.yml` file, remove the whole service / section `frontend`.
-
-* In the `docker-compose.override.yml` file, remove the whole service / section `frontend` and `playwright`.
-
-Done, you have a frontend-less (api-only) app. 🤓
-
----
-
-If you want, you can also remove the `FRONTEND` environment variables from:
-
-* `.env`
-* `./scripts/*.sh`
-
-But it would be only to clean them up, leaving them won't really have any effect either way.
-
-## Generate Client
-
-### Automatically
-
-* Activate the backend virtual environment.
-* From the top level project directory, run the script:
-
-```bash
-./scripts/generate-client.sh
-```
-
-* Commit the changes.
-
-### Manually
-
-* Start the Docker Compose stack.
-
-* Download the OpenAPI JSON file from `http://localhost/api/v1/openapi.json` and copy it to a new file `openapi.json` at the root of the `frontend` directory.
-
-* To generate the frontend client, run:
-
-```bash
-npm run generate-client
-```
-
-* Commit the changes.
-
-Notice that everytime the backend changes (changing the OpenAPI schema), you should follow these steps again to update the frontend client.
-
-## Using a Remote API
-
-If you want to use a remote API, you can set the environment variable `VITE_API_URL` to the URL of the remote API. For example, you can set it in the `frontend/.env` file:
-
-```env
-VITE_API_URL=https://api.my-domain.example.com
-```
-
-Then, when you run the frontend, it will use that URL as the base URL for the API.
-
-## Code Structure
-
-The frontend code is structured as follows:
-
-* `frontend/src` - The main frontend code.
-* `frontend/src/assets` - Static assets.
-* `frontend/src/client` - The generated OpenAPI client.
-* `frontend/src/components` -  The different components of the frontend.
-* `frontend/src/hooks` - Custom hooks.
-* `frontend/src/routes` - The different routes of the frontend which include the pages.
-
-## End-to-End Testing with Playwright
-
-The frontend includes initial end-to-end tests using Playwright. To run the tests, you need to have the Docker Compose stack running. Start the stack with the following command:
-
-```bash
-docker compose up -d --wait backend
-```
-
-Then, you can run the tests with the following command:
-
-```bash
-npx playwright test
-```
-
-You can also run your tests in UI mode to see the browser and interact with it running:
-
-```bash
-npx playwright test --ui
-```
-
-To stop and remove the Docker Compose stack and clean the data created in tests, use the following command:
-
-```bash
-docker compose down -v
-```
-
-To update the tests, navigate to the tests directory and modify the existing test files or add new ones as needed.
-
-For more information on writing and running Playwright tests, refer to the official [Playwright documentation](https://playwright.dev/docs/intro).
+| Task                     | Command                      |
+| ------------------------ | ---------------------------- |
+| Dev server (5173)        | `npm run dev`                |
+| Type-check               | `npm run check`              |
+| Lint (prettier + eslint) | `npm run lint`               |
+| Format                   | `npm run format`             |
+| Unit tests (Vitest)      | `npm run test:unit -- --run` |
+| E2E tests (Playwright)   | `npm run test:e2e`           |
+| Production build         | `npm run build`              |

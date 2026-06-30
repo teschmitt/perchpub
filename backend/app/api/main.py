@@ -4,6 +4,7 @@ from app.api.routes import (
     classify_tasks,
     enrollment,
     login,
+    media,
     observations,
     private,
     species,
@@ -17,6 +18,7 @@ from app.core.config import settings
 api_router = APIRouter()
 
 api_router.include_router(classify_tasks.router)
+api_router.include_router(media.router)
 api_router.include_router(uploads.router)
 api_router.include_router(enrollment.router)
 api_router.include_router(species.router)

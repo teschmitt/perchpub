@@ -210,28 +210,48 @@ services:
       - default
     build:
       context: ./frontend
-      args:
-        - VITE_API_URL=https://api.${DOMAIN?Variable not set}
-        - NODE_ENV=production
     env_file:
       - .env.prod
+    environment:
+      # Server-side data access over the internal network (BFF). The browser is
+      # same-origin and never calls the backend cross-origin.
+      - INTERNAL_API_URL=http://backend:8000
+      # adapter-node sits behind Traefik: trust the forwarded proto/host and pin
+      # ORIGIN so form-action CSRF/Origin checks pass.
+      - ORIGIN=https://${DOMAIN?Variable not set}
+      - PROTOCOL_HEADER=X-Forwarded-Proto
+      - HOST_HEADER=X-Forwarded-Host
+      # Absolute public base for OG/share URLs.
+      - PUBLIC_SITE_URL=https://${DOMAIN?Variable not set}
     labels:
       - traefik.enable=true
       - traefik.docker.network=traefik-public
       - traefik.constraint-label=traefik-public
 
-      - traefik.http.services.${STACK_NAME?Variable not set}-frontend.loadbalancer.server.port=80
+      - traefik.http.services.${STACK_NAME?Variable not set}-frontend.loadbalancer.server.port=3000
 
-      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.rule=Host(`dashboard.${DOMAIN?Variable not set}`)
+      # Public app serves on the apex Host(${DOMAIN}) (replaces the template's
+      # dashboard.${DOMAIN}). http (apex + www) → https.
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.rule=Host(`${DOMAIN?Variable not set}`) || Host(`www.${DOMAIN?Variable not set}`)
       - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.entrypoints=http
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.middlewares=https-redirect
 
-      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-https.rule=Host(`dashboard.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-https.rule=Host(`${DOMAIN?Variable not set}`)
       - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-https.entrypoints=https
       - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-https.tls=true
       - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-https.tls.certresolver=le
 
-      # Enable redirection for HTTP and HTTPS
-      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.middlewares=https-redirect
+      # www.${DOMAIN} → apex redirect (its own LE cert via the same resolver).
+      # `$${1}` escapes compose substitution so Traefik receives the literal
+      # regex backreference `${1}`.
+      - traefik.http.middlewares.${STACK_NAME?Variable not set}-www-redirect.redirectregex.regex=^https?://www\.(.+)
+      - traefik.http.middlewares.${STACK_NAME?Variable not set}-www-redirect.redirectregex.replacement=https://$${1}
+      - traefik.http.middlewares.${STACK_NAME?Variable not set}-www-redirect.redirectregex.permanent=true
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-www.rule=Host(`www.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-www.entrypoints=https
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-www.tls=true
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-www.tls.certresolver=le
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-www.middlewares=${STACK_NAME?Variable not set}-www-redirect
 
   # blob-storage:
   #   image: dxflrs/garage:v2.1.0

@@ -1,23 +1,34 @@
-# Stage 0, "build-stage", based on Node.js, to build and compile the frontend
-FROM node:24 AS build-stage
+# syntax=docker/dockerfile:1
 
+# PerchPub frontend — SvelteKit (adapter-node) SSR server. Replaces the prior
+# nginx-static image: build once, run the Node server on :3000.
+
+# --- build: install deps and compile the adapter-node server ---
+FROM node:24-slim AS build
 WORKDIR /app
-
-COPY package*.json /app/
-
-RUN npm install
-
-COPY ./ /app/
-
-ARG VITE_API_URL=${VITE_API_URL}
-
+COPY package*.json ./
+RUN npm ci
+COPY . .
 RUN npm run build
 
+# --- dev: source + deps for the Vite dev server (docker-compose.override.yml) ---
+FROM node:24-slim AS dev
+WORKDIR /app
+ENV NODE_ENV=development
+COPY package*.json ./
+RUN npm ci
+COPY . .
+EXPOSE 5173
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
 
-# Stage 1, based on Nginx, to have only the compiled app, ready for production with Nginx
-FROM nginx:1
-
-COPY --from=build-stage /app/dist/ /usr/share/nginx/html
-
-COPY ./nginx.conf /etc/nginx/conf.d/default.conf
-COPY ./nginx-backend-not-found.conf /etc/nginx/extra-conf.d/backend-not-found.conf
+# --- runtime: only the built server + its modules (default target) ---
+FROM node:24-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOST=0.0.0.0
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/build ./build
+EXPOSE 3000
+CMD ["node", "build"]

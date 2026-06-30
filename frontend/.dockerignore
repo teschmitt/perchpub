@@ -1,2 +1,11 @@
 node_modules
-dist
+/.svelte-kit
+/build
+.env
+.env.*
+!.env.example
+test-results
+blob-report
+playwright-report
+.git
+.DS_Store
