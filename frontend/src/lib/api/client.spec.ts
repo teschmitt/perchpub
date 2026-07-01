@@ -1,10 +1,11 @@
+import { error, isHttpError, type HttpError } from '@sveltejs/kit';
 import { describe, expect, it, vi } from 'vitest';
 
 // client.ts imports `$env/dynamic/private` at module load; stub it so the pure
 // factory under test does not require the SvelteKit env to be wired.
 vi.mock('$env/dynamic/private', () => ({ env: {} }));
 
-const { createApiClient, serverApiClient } = await import('./client');
+const { createApiClient, requestUpstream, serverApiClient } = await import('./client');
 
 function okJson() {
 	return new Response('{}', {
@@ -69,5 +70,39 @@ describe('serverApiClient (optional-auth)', () => {
 
 		const request = fetchMock.mock.calls[0][0];
 		expect(request.headers.get('authorization')).toBeNull();
+	});
+});
+
+describe('requestUpstream', () => {
+	it('returns the resolved value of the call untouched', async () => {
+		await expect(requestUpstream(Promise.resolve({ data: 1 }))).resolves.toEqual({ data: 1 });
+	});
+
+	it('maps a thrown fetch (backend unreachable) to a 502, not a leaked 500', async () => {
+		let caught: unknown;
+		try {
+			await requestUpstream(Promise.reject(new TypeError('fetch failed')));
+		} catch (e) {
+			caught = e;
+		}
+		expect(isHttpError(caught)).toBe(true);
+		expect((caught as HttpError).status).toBe(502);
+	});
+
+	it('re-raises a SvelteKit error() unchanged (preserves its status)', async () => {
+		let httpError: unknown;
+		try {
+			error(404, 'nope');
+		} catch (e) {
+			httpError = e;
+		}
+		let caught: unknown;
+		try {
+			await requestUpstream(Promise.reject(httpError));
+		} catch (e) {
+			caught = e;
+		}
+		expect(caught).toBe(httpError);
+		expect((caught as HttpError).status).toBe(404);
 	});
 });

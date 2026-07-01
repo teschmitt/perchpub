@@ -1,3 +1,4 @@
+import { error, isHttpError, isRedirect } from '@sveltejs/kit';
 import createClient, { type Client } from 'openapi-fetch';
 import { env } from '$env/dynamic/private';
 import type { components, paths } from './schema';
@@ -52,4 +53,22 @@ export function serverApiClient(
 		bearer: locals.session ?? undefined,
 		fetch: fetcher
 	});
+}
+
+/**
+ * Await an openapi-fetch call, mapping a THROWN fetch (backend unreachable /
+ * network failure — openapi-fetch resolves on HTTP 4xx/5xx but rejects on a
+ * transport error) to a clean `502`, mirroring the media pass-through endpoint.
+ * A load then surfaces its intended error contract instead of a generic `500`.
+ * SvelteKit control-flow throws (`error()`/`redirect()`) are re-raised unchanged.
+ */
+export async function requestUpstream<T>(call: Promise<T>): Promise<T> {
+	try {
+		return await call;
+	} catch (e) {
+		if (isHttpError(e) || isRedirect(e)) {
+			throw e;
+		}
+		error(502, 'Backend unavailable');
+	}
 }
