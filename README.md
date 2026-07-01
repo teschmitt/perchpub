@@ -164,4 +164,6 @@ For more detailed technical information see [backend/README.md](./backend/README
 
 ## License
 
-The project is currently based on the Full Stack FastAPI Template, which is licensed under the terms of the MIT license.
+PerchPub is licensed under the **GNU Affero General Public License v3.0 or later** (`AGPL-3.0-or-later`); see [LICENSE](LICENSE). Because PerchPub is a network server, the AGPL's section 13 applies: if you run a modified version and let users interact with it over a network, you must offer those users the corresponding source.
+
+Portions derive from the [Full Stack FastAPI Template](https://github.com/fastapi/full-stack-fastapi-template), © 2019 Sebastián Ramírez, used under the MIT License — which permits this relicensing. The template's MIT text is preserved in [LICENSE.mit](LICENSE.mit); see [NOTICE](NOTICE) for details.
