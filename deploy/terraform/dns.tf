@@ -6,6 +6,7 @@ locals {
   # "" subdomain == apex (@).
   a_records = {
     apex      = ""
+    www       = "www"
     api       = "api"
     dashboard = "dashboard"
     adminer   = "adminer"
