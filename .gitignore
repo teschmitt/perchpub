@@ -18,3 +18,7 @@ node_modules/
 
 # Local-only prod deploy helper (FU: keep out of repo for now)
 /deploy.sh
+
+# deploy-smoke.py output (--out-dir default): issued device.crt + device.key
+# (private key) + ca_chain.pem — never commit these.
+/smoke-out/
