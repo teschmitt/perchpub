@@ -2,7 +2,7 @@
 
 PerchPub is a self-hosted bird-feeder observation server built on top of [FastAPI](https://github.com/fastapi/fastapi).
 
-This is an early-stage project under active development. The end-to-end ingest path — station enrollment, mTLS-authenticated upload, background classification, and observation persistence — is wired up; the frontend and ActivityPub publishing are not. Submit a PR or an issue if you want to help it along.
+This is an early-stage project under active development. The end-to-end ingest path — station enrollment, mTLS-authenticated upload, background classification, and observation persistence — is wired up, and a SvelteKit web frontend for browsing observations and managing stations now ships alongside it. ActivityPub publishing is the main capability still to come. Submit a PR or an issue if you want to help it along.
 
 The goal of the project is to:
 
@@ -26,7 +26,7 @@ This repository contains the backend that powers PerchPub. At a high level, the 
 - Manages users, stations, species, and observations in a relational database.
 - Accepts media uploads (images/videos) for each observation.
 - Schedules and tracks classification tasks for uploaded media.
-- Optionally publishes new observations via ActivityPub.
+- (Planned) Optionally publish new observations via ActivityPub.
 
 The backend is organized around a few core concepts:
 
