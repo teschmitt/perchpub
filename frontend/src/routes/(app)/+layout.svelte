@@ -21,6 +21,30 @@
 			<a href="/account" data-testid="nav-account" class="rounded-md px-2 py-1.5 hover:bg-accent"
 				>Account</a
 			>
+			{#if data.user.is_superuser}
+				<div class="mt-4 flex flex-col gap-1 border-t border-sidebar-border pt-4">
+					<p
+						class="px-2 pb-0.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+					>
+						Admin
+					</p>
+					<a
+						href="/admin/users"
+						data-testid="nav-admin-users"
+						class="rounded-md px-2 py-1.5 hover:bg-accent">Users</a
+					>
+					<a
+						href="/admin/classify-tasks"
+						data-testid="nav-admin-classify-tasks"
+						class="rounded-md px-2 py-1.5 hover:bg-accent">Classify tasks</a
+					>
+					<a
+						href="/admin/ops"
+						data-testid="nav-admin-ops"
+						class="rounded-md px-2 py-1.5 hover:bg-accent">Ops</a
+					>
+				</div>
+			{/if}
 		</nav>
 	</aside>
 	<div class="flex flex-1 flex-col">

@@ -71,6 +71,40 @@ export function uiLoginSuperuser(page: Page): Promise<void> {
 	return uiLogin(page, EMAIL, PASSWORD);
 }
 
+export interface UserSeed {
+	email: string;
+	password: string;
+	full_name?: string | null;
+	is_active?: boolean;
+	is_superuser?: boolean;
+}
+
+/**
+ * Create a user via the superuser-only `POST /users/` and return its id — used
+ * by the admin e2e flows that need to edit a KNOWN user by navigating directly
+ * to `/admin/users/{id}` (signup returns no id).
+ */
+export async function createUser(
+	request: APIRequestContext,
+	token: string,
+	user: UserSeed
+): Promise<{ id: string; email: string }> {
+	const res = await request.post(`${API_URL}/api/v1/users/`, {
+		headers: { Authorization: `Bearer ${token}` },
+		data: {
+			email: user.email,
+			password: user.password,
+			full_name: user.full_name ?? null,
+			is_active: user.is_active ?? true,
+			is_superuser: user.is_superuser ?? false
+		}
+	});
+	if (!res.ok()) {
+		throw new Error(`createUser failed: ${res.status()} ${await res.text()}`);
+	}
+	return (await res.json()) as { id: string; email: string };
+}
+
 export interface StationSeed {
 	latitude: number;
 	longitude: number;
