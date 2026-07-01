@@ -1,4 +1,4 @@
-import type { APIRequestContext } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
 
 /**
  * Backend origin for seeding fixtures. The Playwright process talks to the SAME
@@ -12,15 +12,63 @@ const EMAIL = process.env.FIRST_SUPERUSER ?? 'admin@example.com';
 const PASSWORD = process.env.FIRST_SUPERUSER_PASSWORD ?? 'changethis';
 
 /** Log in via the backend OAuth2 password grant and return the access token. */
-export async function apiLogin(request: APIRequestContext): Promise<string> {
+export async function apiLoginAs(
+	request: APIRequestContext,
+	email: string,
+	password: string
+): Promise<string> {
 	const res = await request.post(`${API_URL}/api/v1/login/access-token`, {
-		form: { username: EMAIL, password: PASSWORD }
+		form: { username: email, password }
 	});
 	if (!res.ok()) {
 		throw new Error(`login failed: ${res.status()} ${await res.text()}`);
 	}
 	const body = (await res.json()) as { access_token: string };
 	return body.access_token;
+}
+
+/** Log in as the seeded superuser and return the access token. */
+export function apiLogin(request: APIRequestContext): Promise<string> {
+	return apiLoginAs(request, EMAIL, PASSWORD);
+}
+
+/** A per-run unique email so signup always creates a fresh account. */
+export function uniqueEmail(prefix = 'owner'): string {
+	return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
+}
+
+/**
+ * Register a fresh (active, non-superuser) account via the public signup endpoint.
+ * Returns the credentials so a test can then log in through the UI. Used by the
+ * account/owner flows so they never mutate the shared superuser.
+ */
+export async function signupUser(
+	request: APIRequestContext,
+	email: string,
+	password: string,
+	fullName?: string
+): Promise<{ email: string; password: string }> {
+	const res = await request.post(`${API_URL}/api/v1/users/signup`, {
+		data: { email, password, full_name: fullName ?? null }
+	});
+	if (!res.ok()) {
+		throw new Error(`signup failed: ${res.status()} ${await res.text()}`);
+	}
+	return { email, password };
+}
+
+/** Log in through the BFF UI form; lands on the dashboard with the session cookie set. */
+export async function uiLogin(page: Page, email: string, password: string): Promise<void> {
+	await page.goto('/login');
+	await page.getByTestId('email-input').fill(email);
+	await page.getByTestId('password-input').fill(password);
+	await page.getByRole('button', { name: 'Log In' }).click();
+	await page.waitForURL('**/dashboard');
+}
+
+/** Log in through the UI as the seeded superuser. */
+export function uiLoginSuperuser(page: Page): Promise<void> {
+	return uiLogin(page, EMAIL, PASSWORD);
 }
 
 export interface StationSeed {

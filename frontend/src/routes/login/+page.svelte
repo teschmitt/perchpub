@@ -58,5 +58,12 @@
 				Log In
 			</button>
 		</form>
+
+		<p class="mt-6 text-center text-sm text-muted-foreground">
+			New to PerchPub?
+			<a href="/signup" data-testid="signup-link" class="text-primary hover:underline">
+				Create an account
+			</a>
+		</p>
 	</div>
 </main>
