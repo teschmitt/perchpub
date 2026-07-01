@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import type { LayoutData } from './$types';
+	import SiteFooter from '$lib/components/site-footer.svelte';
 
 	let { data, children }: { data: LayoutData; children: Snippet } = $props();
 </script>
@@ -59,5 +60,6 @@
 		<main class="flex-1 p-6">
 			{@render children()}
 		</main>
+		<SiteFooter />
 	</div>
 </div>
