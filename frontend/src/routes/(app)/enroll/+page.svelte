@@ -110,6 +110,7 @@
 		<EnrollToken
 			token={session.auth_token}
 			sessionId={session.session_id}
+			caPin={session.ca_pin}
 			expiresAt={session.expires_at}
 		/>
 

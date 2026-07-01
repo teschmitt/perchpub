@@ -7,7 +7,46 @@ type StationPublic = components['schemas']['StationPublic'];
 export interface EnrollSession {
 	session_id: string;
 	auth_token: string;
+	/** Device-CA root SPKI pin (64-hex) the station verifies `/confirm`'s chain against. */
+	ca_pin: string;
 	expires_at: string;
+}
+
+/**
+ * The compact JSON the enrollment QR encodes — exactly the three perchstation
+ * pairing-contract fields (`session_id`, `auth_token`, `ca_pin`), in contract
+ * order, as one byte-mode symbol. `expires_at` is intentionally omitted: perchpub
+ * enforces the TTL, and the station ignores it. No chain, keypair, or CSR.
+ */
+export function buildEnrollQrPayload(session: {
+	session_id: string;
+	auth_token: string;
+	ca_pin: string;
+}): string {
+	return JSON.stringify({
+		session_id: session.session_id,
+		auth_token: session.auth_token,
+		ca_pin: session.ca_pin
+	});
+}
+
+/** Error-correction level for the enrollment QR — high enough for the screen→camera path. */
+export const ENROLL_QR_EC_LEVEL = 'M' as const;
+
+/**
+ * The qrcode input for the enrollment symbol: a single explicit **byte-mode**
+ * segment carrying the compact JSON payload as raw UTF-8 bytes. Passing an
+ * explicit byte segment (rather than a bare string) stops qrcode's auto-optimizer
+ * from splitting the payload into mixed numeric/alphanumeric segments — the
+ * perchstation contract mandates one byte-mode symbol. The wizard and the
+ * conformance test both encode through this helper so they cannot drift.
+ */
+export function enrollQrSegments(session: {
+	session_id: string;
+	auth_token: string;
+	ca_pin: string;
+}): { data: Uint8Array; mode: 'byte' }[] {
+	return [{ data: new TextEncoder().encode(buildEnrollQrPayload(session)), mode: 'byte' }];
 }
 
 /**
@@ -27,8 +66,12 @@ export interface EnrollResult {
 	formError?: string;
 }
 
-/** Enrollment session TTL in seconds — mirrors the backend `TTL_SECONDS`. */
-export const ENROLLMENT_TTL_SECONDS = 300;
+/**
+ * Default enrollment-session TTL in seconds — mirrors the backend
+ * `settings.ENROLLMENT_TTL_SECONDS` default. The live countdown derives purely
+ * from `expires_at`, so this is a reference/default, not a hardcoded window.
+ */
+export const ENROLLMENT_TTL_SECONDS = 60;
 
 /**
  * Whole seconds remaining until `expiresAt` (ISO date-time), clamped at zero.

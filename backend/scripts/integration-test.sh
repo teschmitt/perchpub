@@ -43,6 +43,13 @@ trap cleanup EXIT
 
 # Pre-clean any leftover state from a previously-crashed run.
 "${COMPOSE[@]}" down -v --remove-orphans 2>/dev/null || true
+
+# Rebuild the backend image the stack runs. The base + test overlay carry NO
+# build context (only the dev override does), so `up` alone silently reuses a
+# possibly-stale ${DOCKER_IMAGE_BACKEND}:latest — i.e. tests old code. Build
+# from ./backend so the integration suite always exercises current code.
+docker build -t "${DOCKER_IMAGE_BACKEND:-perchpub-api}:${TAG:-latest}" ../backend
+
 "${COMPOSE[@]}" up -d --wait
 
 # Pull the step-ca provisioner JWK + root cert out of the container so

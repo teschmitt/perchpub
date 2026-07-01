@@ -55,6 +55,11 @@ class Settings(BaseSettings):
 
     ENROLLMENT_HMAC_KEY_HEX: str = ""
 
+    # One-time enrollment-token TTL. QR-based enrollment is near-instant, so a
+    # short window shrinks the replay surface of a photographed QR (a
+    # cross-tenant risk on a public service). Raise via env for a fumbly demo.
+    ENROLLMENT_TTL_SECONDS: int = 60
+
     GARAGE_BUCKET_NAME: str = "perchpub-bucket"
     GARAGE_ENDPOINT: str = ""
     GARAGE_KEY_ID: str = ""

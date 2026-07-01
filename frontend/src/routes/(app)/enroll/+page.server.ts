@@ -21,7 +21,10 @@ async function ownedStationIds(
 export const actions = {
 	// Start an enrollment session. The device-side confirm step is out of browser
 	// scope (the Pi performs POST /enrollment/confirm/{session_id}).
-	create: async ({ request, locals, fetch }) => {
+	create: async ({ request, locals, fetch, setHeaders }) => {
+		// The response carries the one-time auth_token — never let it be cached
+		// (spec: the credential SHALL be served no-store).
+		setHeaders({ 'cache-control': 'no-store' });
 		const form = await request.formData();
 		const values = {
 			latitude: String(form.get('latitude') ?? ''),
@@ -56,6 +59,7 @@ export const actions = {
 			session: {
 				session_id: data.session_id,
 				auth_token: data.auth_token,
+				ca_pin: data.ca_pin,
 				expires_at: data.expires_at
 			},
 			baseline
@@ -65,7 +69,9 @@ export const actions = {
 
 	// No operator poll endpoint exists — confirm by diffing the station list
 	// against the baseline captured at session start.
-	check: async ({ request, locals, fetch }) => {
+	check: async ({ request, locals, fetch, setHeaders }) => {
+		// The enroll page re-renders its credential panel on this response too.
+		setHeaders({ 'cache-control': 'no-store' });
 		const form = await request.formData();
 		let baseline: string[] = [];
 		try {

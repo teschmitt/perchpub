@@ -28,6 +28,8 @@ DeviceKey = EllipticCurvePrivateKey | ed25519.Ed25519PrivateKey
 
 @dataclass
 class TestCA:
+    __test__ = False  # not a pytest test class despite the "Test" prefix
+
     cert: x509.Certificate
     key: DeviceKey
 
@@ -35,9 +37,18 @@ class TestCA:
     def cert_pem(self) -> str:
         return self.cert.public_bytes(Encoding.PEM).decode("utf-8")
 
+    @property
+    def spki_sha256_hex(self) -> str:
+        spki_der = self.cert.public_key().public_bytes(
+            Encoding.DER, PublicFormat.SubjectPublicKeyInfo
+        )
+        return hashlib.sha256(spki_der).hexdigest()
+
 
 @dataclass
 class TestLeaf:
+    __test__ = False  # not a pytest test class despite the "Test" prefix
+
     cert: x509.Certificate
     key: DeviceKey
 
@@ -67,6 +78,47 @@ def make_ca(common_name: str = "PerchPub Test Device CA") -> TestCA:
         .not_valid_after(now + timedelta(days=3650))
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
         .sign(key, hashes.SHA256())
+    )
+    return TestCA(cert=cert, key=key)
+
+
+def make_intermediate(
+    root: TestCA, common_name: str = "PerchPub Test Intermediate CA"
+) -> TestCA:
+    """Build an intermediate CA signed by ``root``.
+
+    The device-CA hierarchy step-ca ships is root → intermediate → leaf: the
+    intermediate is the *issuing* CA (it signs station leaves) and carries
+    ``cA=TRUE`` + ``keyUsage.keyCertSign`` so a station can accept it as a
+    "usable CA" when building ``leaf → intermediate → root``.
+    """
+    key = ec.generate_private_key(ec.SECP256R1())
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
+    now = datetime.now(timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(root.cert.subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=1))
+        .not_valid_after(now + timedelta(days=1825))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=False,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=True,
+                crl_sign=True,
+                encipher_only=False,
+                decipher_only=False,
+            ),
+            critical=True,
+        )
+        .sign(root.key, hashes.SHA256())
     )
     return TestCA(cert=cert, key=key)
 

@@ -10,6 +10,7 @@ const { fakeActionEvent, fakeUser, jsonResponse } = await import('$lib/action-te
 const SESSION = {
 	session_id: '22222222-2222-2222-2222-222222222222',
 	auth_token: 'one-time-secret-token',
+	ca_pin: 'b'.repeat(64),
 	expires_at: '2026-07-01T12:05:00.000Z'
 };
 
@@ -33,13 +34,18 @@ describe('enroll create action', () => {
 			return jsonResponse(200, { data: [ownedStation('s-existing')], count: 1 });
 		});
 
+		const setHeaders = vi.fn();
 		const result = (await actions.create(
 			fakeActionEvent({
 				form: { latitude: '52.5', longitude: '13.4' },
 				locals: { session: 'owner-jwt', user: fakeUser() },
-				fetch: fetchMock as unknown as typeof fetch
+				fetch: fetchMock as unknown as typeof fetch,
+				setHeaders
 			}) as Parameters<typeof actions.create>[0]
 		)) as EnrollResult;
+
+		// The one-time credential ride must never be cached (spec: served no-store).
+		expect(setHeaders).toHaveBeenCalledWith({ 'cache-control': 'no-store' });
 
 		const createReq = fetchMock.mock.calls.find((c) =>
 			(c[0] as unknown as Request).url.endsWith('/api/v1/enrollment/create')
@@ -52,6 +58,7 @@ describe('enroll create action', () => {
 			session: {
 				session_id: SESSION.session_id,
 				auth_token: SESSION.auth_token,
+				ca_pin: SESSION.ca_pin,
 				expires_at: SESSION.expires_at
 			},
 			baseline: ['s-existing']

@@ -641,6 +641,8 @@ export interface components {
 			 * Format: date-time
 			 */
 			expires_at: string;
+			/** Ca Pin */
+			ca_pin: string;
 		};
 		/**
 		 * EnrollmentSessionCreate

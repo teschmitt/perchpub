@@ -3,6 +3,8 @@ import hmac
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
+from pathlib import Path
 
 import httpx
 from cryptography import x509
@@ -21,7 +23,6 @@ from app.models.enrollment import (
 )
 from app.models.station import Station
 
-TTL_SECONDS = 300
 MAX_ENROLLMENT_ATTEMPTS = 3
 
 # TODO: use a real secrets manager instead of env files like an amateur
@@ -42,6 +43,48 @@ def _csr_spki_sha256_hex(cert: x509.Certificate) -> str:
     return hashlib.sha256(spki_der).hexdigest()
 
 
+@lru_cache(maxsize=1)
+def _device_ca_root_pem() -> str:
+    """Read the device-CA root cert PEM once.
+
+    Read-on-first-use (lazy) so a missing/placeholder cert path fails loudly
+    only when enrollment is exercised, not at import.
+    """
+    return Path(settings.STEP_CA_ROOT_CERT_PATH).read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=1)
+def _device_ca_pin() -> str:
+    """Lowercase-hex SHA-256(SPKI, DER) of the device-CA root certificate.
+
+    This is the QR's out-of-band integrity commitment: a station verifies the
+    ``ca_chain_pem`` returned by ``/confirm`` against it. Reuses the same
+    SPKI-SHA256 construction used for ``Station.spki_sha256``.
+    """
+    root = x509.load_pem_x509_certificate(_device_ca_root_pem().encode("utf-8"))
+    return _csr_spki_sha256_hex(root)
+
+
+def _append_root_to_chain(intermediate_pem: str) -> str:
+    """Return the full device-CA chain: issuing intermediate first, root last.
+
+    step-ca's sign response carries the issuing intermediate; the station needs
+    the root to build ``leaf -> intermediate -> root`` and check it against the
+    pinned root. Both the pin and this appended root read from the same file
+    (``STEP_CA_ROOT_CERT_PATH``), so they are DER-equal by construction.
+
+    An empty intermediate (step-ca returned no chain) fails loudly with a 502
+    rather than silently degrading to a root-only chain a station cannot use.
+    """
+    intermediate = intermediate_pem.strip()
+    if not intermediate:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="certificate issuance failed",
+        )
+    return intermediate + "\n" + _device_ca_root_pem().strip() + "\n"
+
+
 @router.post("/create", response_model=EnrollmentSession)
 def create_enrollment_session(
     session: SessionDep,
@@ -50,7 +93,12 @@ def create_enrollment_session(
 ) -> EnrollmentSession:
     session_id = uuid.uuid4()
     auth_token = secrets.token_urlsafe(32)
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=TTL_SECONDS)
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        seconds=settings.ENROLLMENT_TTL_SECONDS
+    )
+    # Read/hash the device-CA root BEFORE any DB write, so a missing/placeholder
+    # root fails loudly here without committing an orphan enrollment token.
+    ca_pin = _device_ca_pin()
 
     enrollment_token = EnrollmentToken(
         session_id=session_id,
@@ -67,7 +115,10 @@ def create_enrollment_session(
     session.commit()
 
     return EnrollmentSession(
-        session_id=session_id, auth_token=auth_token, expires_at=expires_at
+        session_id=session_id,
+        auth_token=auth_token,
+        expires_at=expires_at,
+        ca_pin=ca_pin,
     )
 
 
@@ -134,6 +185,11 @@ async def enroll_station(
     leaf = x509.load_pem_x509_certificate(signed.certificate_pem.encode("utf-8"))
     spki_pin = _csr_spki_sha256_hex(leaf)
 
+    # Build the full response chain (intermediate + root) BEFORE mutating state,
+    # so a missing root / empty intermediate fails loudly with the session left
+    # unclaimed and retryable — no orphaned, un-redeemable Station.
+    ca_chain_pem = _append_root_to_chain(signed.ca_chain_pem)
+
     if enrollment_session.latitude is None or enrollment_session.longitude is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -158,6 +214,6 @@ async def enroll_station(
     return EnrollmentResponse(
         success=True,
         certificate_pem=signed.certificate_pem,
-        ca_chain_pem=signed.ca_chain_pem,
+        ca_chain_pem=ca_chain_pem,
         station_id=station.id,
     )

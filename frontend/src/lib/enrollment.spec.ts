@@ -7,8 +7,8 @@ import {
 	secondsRemaining
 } from './enrollment';
 
-const EXPIRES = '2026-07-01T12:05:00.000Z';
-const CREATED = Date.parse('2026-07-01T12:00:00.000Z'); // 300s before expiry
+const EXPIRES = '2026-07-01T12:01:00.000Z';
+const CREATED = Date.parse('2026-07-01T12:00:00.000Z'); // 60s before expiry
 
 describe('secondsRemaining', () => {
 	it('reports the full TTL at the moment of creation', () => {
@@ -16,7 +16,7 @@ describe('secondsRemaining', () => {
 	});
 
 	it('counts down as time passes', () => {
-		expect(secondsRemaining(EXPIRES, CREATED + 60_000)).toBe(240);
+		expect(secondsRemaining(EXPIRES, CREATED + 30_000)).toBe(30);
 	});
 
 	it('clamps to zero at and past the deadline', () => {

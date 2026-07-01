@@ -34,6 +34,9 @@ class EnrollmentSession(SQLModel):
     session_id: uuid.UUID
     auth_token: str
     expires_at: datetime
+    # Lowercase-hex SHA-256(SPKI) of the device-CA root — the QR's out-of-band
+    # integrity commitment the station verifies /confirm's chain against.
+    ca_pin: str
 
 
 class EnrollmentRequest(SQLModel):

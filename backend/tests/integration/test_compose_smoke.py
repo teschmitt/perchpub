@@ -14,6 +14,7 @@ container ordering, step-ca's narrowed subpath mounts from FU-13), plus
 backend↔worker handoff over the real Redis.
 """
 
+import hashlib
 import time
 import urllib.parse
 import uuid
@@ -121,6 +122,39 @@ def test_compose_smoke_full_ingest_flow(
             Ed25519PublicKey if key_type == "ed25519" else EllipticCurvePublicKey
         )
         assert isinstance(leaf.public_key(), expected_pub)
+
+        # Interop invariant (design D3 / Risks): the QR carries only the root
+        # pin; /confirm returns the full chain (intermediate + root). This is
+        # the assertion that proves a station's root-pin verification will
+        # succeed against the deployed step-ca — build leaf -> intermediate ->
+        # root and assert the root's SPKI-SHA256 equals the create-time ca_pin.
+        ca_pin = enrollment_session["ca_pin"]
+        assert len(ca_pin) == 64 and ca_pin == ca_pin.lower()
+
+        chain = x509.load_pem_x509_certificates(
+            enrollment["ca_chain_pem"].encode("utf-8")
+        )
+        assert len(chain) == 2, "expected issuing intermediate + root"
+        intermediate_cert, root_cert = chain
+
+        # leaf -> intermediate -> root builds (each cert issued by the next).
+        leaf.verify_directly_issued_by(intermediate_cert)
+        intermediate_cert.verify_directly_issued_by(root_cert)
+
+        # The issuing intermediate is a usable CA (cA=TRUE + keyCertSign).
+        basic = intermediate_cert.extensions.get_extension_for_class(
+            x509.BasicConstraints
+        )
+        assert basic.value.ca is True
+        key_usage = intermediate_cert.extensions.get_extension_for_class(x509.KeyUsage)
+        assert key_usage.value.key_cert_sign is True
+
+        # The pinned root equals the chain's root by SPKI-SHA256.
+        root_spki = root_cert.public_key().public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        assert hashlib.sha256(root_spki).hexdigest() == ca_pin
 
         # Hand-stuffed mTLS handshake: the cert PEM URL-encoded into the
         # `X-Forwarded-Tls-Client-Cert` header, mirroring what Traefik's

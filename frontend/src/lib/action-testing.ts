@@ -34,6 +34,8 @@ export interface FakeEventOptions {
 	/** The `fetch` the typed client will call (assert the outgoing `Request` here). */
 	fetch: typeof globalThis.fetch;
 	cookies?: Partial<RequestEvent['cookies']>;
+	/** Spy/override for `event.setHeaders`; defaults to a no-op. */
+	setHeaders?: (headers: Record<string, string>) => void;
 }
 
 /**
@@ -63,6 +65,7 @@ export function fakeActionEvent(options: FakeEventOptions): RequestEvent {
 		params: options.params ?? {},
 		url: new URL(options.url ?? 'http://localhost/'),
 		fetch: options.fetch,
+		setHeaders: options.setHeaders ?? (() => {}),
 		cookies
 	};
 	return event as unknown as RequestEvent;
