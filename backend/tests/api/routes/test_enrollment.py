@@ -24,6 +24,7 @@ import httpx
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -107,6 +108,23 @@ def _signed_cert_for(csr_pem: str, signing_ca: TestCA) -> SignedCertificate:
         not_before=now,
         not_after=now + timedelta(days=30),
     )
+
+
+def _csr_with_key(
+    key: ec.EllipticCurvePrivateKey, common_name: str = "device-001.local"
+) -> str:
+    """Build a CSR from a caller-supplied key.
+
+    Unlike ``make_csr`` (which mints a fresh key each call), this lets two CSRs
+    share one key — and therefore one leaf SPKI — modelling a station that
+    re-enrolls with its persisted keypair to refresh its certificate.
+    """
+    csr = (
+        x509.CertificateSigningRequestBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)]))
+        .sign(key, hashes.SHA256())
+    )
+    return csr.public_bytes(Encoding.PEM).decode("utf-8")
 
 
 def _operator(db: Session, client: TestClient) -> tuple[User, dict[str, str]]:
@@ -350,6 +368,113 @@ def test_create_missing_root_commits_no_orphan_token(
         select(EnrollmentToken).where(EnrollmentToken.owner_id == operator.id)
     ).all()
     assert orphans == []
+
+
+def test_reenroll_same_key_refreshes_cert_and_reuses_station(
+    client: TestClient, db: Session, device_ca: _DeviceCA
+) -> None:
+    """Re-enrolling with the persisted keypair refreshes the certificate on the
+    SAME station instead of tripping the unique SPKI index with a 500.
+
+    A station keeps its device keypair across enrollments, so its second CSR
+    carries the same public key -> the signed leaf has the same SPKI -> the
+    same ``Station.spki_sha256`` pin. The server must treat this as a refresh of
+    the existing station, not a duplicate insert.
+    """
+    operator, headers = _operator(db, client)
+    device_key = ec.generate_private_key(ec.SECP256R1())
+
+    async def _fake_sign(csr: str) -> SignedCertificate:
+        return _signed_cert_for(csr, device_ca.intermediate)
+
+    # First enrollment creates the station.
+    first = _create_session(client, headers)
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r1 = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{first.session_id}",
+            json={"auth_token": first.auth_token, "csr_pem": _csr_with_key(device_key)},
+        )
+    assert r1.status_code == 200, r1.text
+    station_id = uuid.UUID(r1.json()["station_id"])
+
+    # Second enrollment reuses the SAME device key (persisted keypair).
+    second = _create_session(client, headers)
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r2 = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{second.session_id}",
+            json={
+                "auth_token": second.auth_token,
+                "csr_pem": _csr_with_key(device_key),
+            },
+        )
+
+    assert r2.status_code == 200, r2.text
+    body = r2.json()
+    assert body["success"] is True
+    # Same station identity — no duplicate row was created.
+    assert uuid.UUID(body["station_id"]) == station_id
+    # A freshly signed leaf + chain are still returned.
+    assert body["certificate_pem"].startswith("-----BEGIN CERTIFICATE-----")
+    assert body["ca_chain_pem"].startswith("-----BEGIN CERTIFICATE-----")
+
+    # Exactly one station carries this SPKI (identity resolution is SPKI-unique).
+    leaf = x509.load_pem_x509_certificate(body["certificate_pem"].encode("utf-8"))
+    spki = hashlib.sha256(
+        leaf.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+    ).hexdigest()
+    stations = db.exec(select(Station).where(Station.spki_sha256 == spki)).all()
+    assert len(stations) == 1
+    assert stations[0].id == station_id
+    assert stations[0].owner_id == operator.id
+
+    # The second session is claimed and points at the same, existing station.
+    token = db.get(EnrollmentToken, second.session_id)
+    assert token is not None
+    assert token.claimed is True
+    assert token.station_id == station_id
+
+
+def test_reenroll_same_key_different_owner_is_rejected(
+    client: TestClient, db: Session, device_ca: _DeviceCA
+) -> None:
+    """A device key already bound to one account cannot be re-enrolled into
+    another — the SPKI -> owner binding is not silently transferable.
+    """
+    owner_a, headers_a = _operator(db, client)
+    _owner_b, headers_b = _operator(db, client)
+    device_key = ec.generate_private_key(ec.SECP256R1())
+
+    async def _fake_sign(csr: str) -> SignedCertificate:
+        return _signed_cert_for(csr, device_ca.intermediate)
+
+    first = _create_session(client, headers_a)
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r1 = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{first.session_id}",
+            json={"auth_token": first.auth_token, "csr_pem": _csr_with_key(device_key)},
+        )
+    assert r1.status_code == 200, r1.text
+    station_id = uuid.UUID(r1.json()["station_id"])
+
+    # A different operator tries to enroll a device carrying the same key.
+    second = _create_session(client, headers_b)
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r2 = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{second.session_id}",
+            json={
+                "auth_token": second.auth_token,
+                "csr_pem": _csr_with_key(device_key),
+            },
+        )
+
+    assert r2.status_code == 409, r2.text
+    # Ownership is unchanged; the second session is left unclaimed.
+    station = db.get(Station, station_id)
+    assert station is not None
+    assert station.owner_id == owner_a.id
+    token = db.get(EnrollmentToken, second.session_id)
+    assert token is not None
+    assert token.claimed is False
 
 
 def test_confirm_empty_intermediate_chain_returns_502(

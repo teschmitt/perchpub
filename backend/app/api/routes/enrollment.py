@@ -10,6 +10,7 @@ import httpx
 from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from fastapi import APIRouter, HTTPException, status
+from sqlmodel import select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.ca.step_ca_client import sign_device_csr
@@ -190,20 +191,42 @@ async def enroll_station(
     # unclaimed and retryable — no orphaned, un-redeemable Station.
     ca_chain_pem = _append_root_to_chain(signed.ca_chain_pem)
 
-    if enrollment_session.latitude is None or enrollment_session.longitude is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="enrollment session is missing coordinates",
+    # A station keeps its device keypair across enrollments, so re-enrolling to
+    # refresh its certificate presents a CSR with the same public key -> the
+    # signed leaf carries the same SPKI -> the same pin. Station identity is
+    # resolved SPKI-uniquely (get_current_station), so an existing station with
+    # this pin must be *reused*, not duplicated: a fresh INSERT would trip the
+    # unique ix_station_spki_sha256 index with an IntegrityError (500).
+    existing = session.exec(
+        select(Station).where(Station.spki_sha256 == spki_pin)
+    ).first()
+    if existing is not None:
+        # Refuse to silently move a device between accounts. Re-enrollment
+        # refreshes the cert for the *same* owner; cross-owner transfer (and
+        # revocation) is the domain of the enrollment-hardening change.
+        if existing.owner_id != enrollment_session.owner_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="device already enrolled to another account",
+            )
+        station = existing
+    else:
+        # Coordinates are only needed to create a new station; a refresh keeps
+        # the station's existing location (relocation is a station-management
+        # operation, not a side effect of re-enrolling).
+        if enrollment_session.latitude is None or enrollment_session.longitude is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="enrollment session is missing coordinates",
+            )
+        station = Station(
+            latitude=enrollment_session.latitude,
+            longitude=enrollment_session.longitude,
+            owner_id=enrollment_session.owner_id,
+            spki_sha256=spki_pin,
         )
-
-    station = Station(
-        latitude=enrollment_session.latitude,
-        longitude=enrollment_session.longitude,
-        owner_id=enrollment_session.owner_id,
-        spki_sha256=spki_pin,
-    )
-    session.add(station)
-    session.flush()
+        session.add(station)
+        session.flush()
 
     enrollment_session.claimed = True
     enrollment_session.station_id = station.id
