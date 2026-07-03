@@ -1,10 +1,9 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { createApiClient, internalApiUrl } from '$lib/api/client';
+import { SESSION_COOKIE, SESSION_MAX_AGE, sessionCookieOptions } from '$lib/server/auth';
 import type { Actions, PageServerLoad } from './$types';
 
 interface SignupResult {
-	success?: boolean;
-	message?: string;
 	error?: string;
 	values?: { email?: string; full_name?: string };
 }
@@ -18,7 +17,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 };
 
 export const actions = {
-	default: async ({ request, fetch }) => {
+	default: async ({ request, cookies, fetch }) => {
 		const form = await request.formData();
 		const email = String(form.get('email') ?? '').trim();
 		const password = String(form.get('password') ?? '');
@@ -31,9 +30,8 @@ export const actions = {
 			} satisfies SignupResult);
 		}
 
-		// Public signup: no bearer. The backend returns the SAME generic message
-		// whether or not the email already exists (no account enumeration), so the
-		// action relays it verbatim and never asserts an account was created.
+		// Public signup: no bearer. The backend returns the SAME generic response
+		// whether or not the email already exists (no account enumeration).
 		const client = createApiClient({ baseUrl: internalApiUrl(), fetch });
 		const { data, response } = await client.POST('/api/v1/users/signup', {
 			body: { email, password, full_name: full_name || null }
@@ -46,6 +44,24 @@ export const actions = {
 			} satisfies SignupResult);
 		}
 
-		return { success: true, message: data.message } satisfies SignupResult;
+		// Immediately establish a session by performing the password grant with the
+		// just-submitted credentials, then hand off into first-station setup. The
+		// grant succeeds for a freshly-created account; it fails when the email
+		// already belongs to an account whose password differs (signup was a no-op)
+		// — in which case we fall back to the login form, asserting nothing about
+		// whether the account existed (indistinguishable from a mistyped password).
+		const grant = await client.POST('/api/v1/login/access-token', {
+			body: { username: email, password, scope: '' },
+			bodySerializer: (body) => new URLSearchParams(body as Record<string, string>).toString(),
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+		});
+
+		if (!grant.response.ok || !grant.data?.access_token) {
+			redirect(303, '/login');
+		}
+
+		// Set the httpOnly session cookie — the JWT never reaches client JS.
+		cookies.set(SESSION_COOKIE, grant.data.access_token, sessionCookieOptions(SESSION_MAX_AGE));
+		redirect(303, '/stations/new');
 	}
 } satisfies Actions;
