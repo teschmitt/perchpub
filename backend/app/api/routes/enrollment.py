@@ -10,11 +10,12 @@ import httpx
 from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlmodel import col, func, select
+from sqlmodel import select
 
 from app.api.deps import CurrentUser, SessionDep, client_source
 from app.ca.step_ca_client import sign_device_csr
 from app.core.config import settings
+from app.core.quotas import enforce_active_session_quota, enforce_station_quota
 from app.core.ratelimit import (
     enforce_enrollment_confirm_rate,
     enforce_enrollment_create_rate,
@@ -29,6 +30,7 @@ from app.models.enrollment import (
     EnrollmentToken,
 )
 from app.models.station import Station
+from app.models.user import User
 
 MAX_ENROLLMENT_ATTEMPTS = 3
 
@@ -111,42 +113,14 @@ def create_enrollment_session(
     current_user: CurrentUser,
     create_in: EnrollmentSessionCreate,
 ) -> EnrollmentSession:
-    # DB-backed per-user quotas (design D2), enforced before any write.
-    # Always on (unlike the fail-open rate limit); superusers are exempt.
-    if not current_user.is_superuser:
-        now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
-        active_sessions = session.exec(
-            select(func.count())
-            .select_from(EnrollmentToken)
-            .where(
-                EnrollmentToken.owner_id == current_user.id,
-                col(EnrollmentToken.claimed).is_(False),
-                col(EnrollmentToken.expires_at) > now_naive,
-            )
-        ).one()
-        if active_sessions >= settings.MAX_ACTIVE_ENROLLMENT_SESSIONS_PER_USER:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="active enrollment session limit reached",
-            )
-        # Owned, non-revoked stations — a revoked station frees a quota slot (D1).
-        # This is a create-time gate (per spec), so the true station count can
-        # overshoot MAX_STATIONS_PER_USER by at most the active-session ceiling
-        # (a user may confirm sessions opened while under the cap); the active-
-        # session quota bounds that slack.
-        owned_stations = session.exec(
-            select(func.count())
-            .select_from(Station)
-            .where(
-                Station.owner_id == current_user.id,
-                col(Station.revoked_at).is_(None),
-            )
-        ).one()
-        if owned_stations >= settings.MAX_STATIONS_PER_USER:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="station limit reached",
-            )
+    # Per-user active-session quota (design D2), enforced before any write and
+    # race-safe. The owned-station ceiling is NOT checked here: it is enforced
+    # where a new station is actually created (enroll_station / POST /station/),
+    # so re-enrolling to refresh an existing station's cert is never blocked.
+    # Superusers are exempt.
+    enforce_active_session_quota(
+        session, current_user.id, is_superuser=current_user.is_superuser
+    )
 
     session_id = uuid.uuid4()
     auth_token = secrets.token_urlsafe(32)
@@ -276,15 +250,24 @@ async def enroll_station(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="device already enrolled to another account",
             )
-    elif enrollment_session.latitude is None or enrollment_session.longitude is None:
-        # Coordinates are only needed to create a new station; a refresh keeps
-        # the station's existing location (relocation is a station-management
-        # operation, not a side effect of re-enrolling).
-        session.add(enrollment_session)
-        session.commit()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="enrollment session is missing coordinates",
+    else:
+        # New station. Coordinates are required (a refresh keeps the existing
+        # station's location), and the owned-station ceiling applies here — where
+        # a station is actually created — not at /create, so refresh is exempt.
+        # Both checks run BEFORE signing, so a rejected new enrollment never
+        # mints a throwaway cert (D1/D2).
+        if enrollment_session.latitude is None or enrollment_session.longitude is None:
+            session.add(enrollment_session)
+            session.commit()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="enrollment session is missing coordinates",
+            )
+        owner = session.get(User, enrollment_session.owner_id)
+        enforce_station_quota(
+            session,
+            enrollment_session.owner_id,
+            is_superuser=owner.is_superuser if owner is not None else False,
         )
 
     # Sign with step-ca. Map any signing failure to a generic 502 — do not

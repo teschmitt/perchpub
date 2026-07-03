@@ -17,11 +17,19 @@ The service SHALL rate-limit enrollment on a multi-tenant deployment. `POST /api
 
 ### Requirement: Per-user enrollment and station quotas
 
-The service SHALL enforce a per-user ceiling on concurrently-active (unclaimed, unexpired) enrollment sessions and on total owned, non-revoked stations. A `POST /enrollment/create` from a non-superuser already at either ceiling SHALL be rejected with `403` and no `EnrollmentToken` persisted. Superusers SHALL be exempt from these quotas.
+The service SHALL enforce a per-user ceiling on concurrently-active (unclaimed, unexpired) enrollment sessions and on total owned, non-revoked stations, and SHALL enforce each ceiling atomically per user so that concurrent requests cannot both exceed it. The active-session ceiling SHALL be enforced at `POST /api/v1/enrollment/create` (`403`, no `EnrollmentToken` persisted). The owned-station ceiling SHALL be enforced wherever a **new** station is created — a `POST /api/v1/enrollment/confirm/{session_id}` that would create a new station (rejected **before** any CSR is signed) and `POST /api/v1/station/` — with `403` and no station created. Re-enrolling an **existing** owned station to refresh its certificate SHALL NOT be blocked by the station ceiling (certificate refresh has no other path). Superusers SHALL be exempt from these quotas.
 
-#### Scenario: a user at their station ceiling cannot create more sessions
-- **WHEN** a non-superuser at the configured owned-station ceiling calls `POST /enrollment/create`
-- **THEN** the request is rejected with `403` and no new `EnrollmentToken` is persisted
+#### Scenario: a user at their station ceiling cannot enroll a new station
+- **WHEN** a non-superuser at the configured owned-station ceiling completes `POST /enrollment/confirm/{session_id}` with a CSR for a new device key
+- **THEN** the request is rejected with `403` before any CSR is signed and no new `Station` is created
+
+#### Scenario: a user at their station ceiling can still refresh an existing station
+- **WHEN** a non-superuser at the configured owned-station ceiling re-enrolls one of their existing stations (a CSR bearing that station's device key, i.e. the same SPKI)
+- **THEN** the certificate is refreshed and the request succeeds — the station ceiling does not block refresh
+
+#### Scenario: direct station creation respects the station ceiling
+- **WHEN** a non-superuser at the configured owned-station ceiling calls `POST /api/v1/station/`
+- **THEN** the request is rejected with `403` and no new `Station` is created
 
 #### Scenario: a user at their active-session ceiling cannot open another session
 - **WHEN** a non-superuser holding the configured maximum of active (unclaimed, unexpired) sessions calls `POST /enrollment/create`

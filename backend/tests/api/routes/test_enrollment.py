@@ -739,28 +739,95 @@ def test_create_rate_exempts_superuser(
             assert r.status_code == 200, r.text
 
 
-def test_create_at_station_ceiling_returns_403(
+def test_confirm_new_station_at_ceiling_returns_403_without_signing(
     client: TestClient,
     db: Session,
+    device_ca: _DeviceCA,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A non-superuser at the owned-station ceiling gets 403, no token (D2)."""
+    """A non-superuser at the owned-station ceiling is refused when confirming a
+    NEW device — before any CSR is signed and with no station created (D2). The
+    ceiling is enforced at station creation, not at /create.
+    """
     monkeypatch.setattr(settings, "MAX_STATIONS_PER_USER", 2)
     operator, headers = _operator(db, client)
     for _ in range(2):
         db.add(Station(latitude=0.0, longitude=0.0, owner_id=operator.id))
     db.commit()
 
-    r = client.post(
-        f"{settings.API_V1_STR}/enrollment/create",
-        headers=headers,
-        json={"latitude": 47.5, "longitude": 8.7},
-    )
-    assert r.status_code == 403
-    tokens = db.exec(
-        select(EnrollmentToken).where(EnrollmentToken.owner_id == operator.id)
+    enrollment = _create_session(client, headers)  # /create still succeeds at cap
+    sign_calls: list[str] = []
+
+    async def _tracking_sign(csr: str) -> SignedCertificate:
+        sign_calls.append(csr)
+        return _signed_cert_for(csr, device_ca.intermediate)
+
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_tracking_sign):
+        r = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{enrollment.session_id}",
+            json={"auth_token": enrollment.auth_token, "csr_pem": make_csr()},
+        )
+    assert r.status_code == 403, r.text
+    assert sign_calls == []  # rejected before signing
+    stations = db.exec(
+        select(Station).where(Station.owner_id == operator.id)
     ).all()
-    assert tokens == []
+    assert len(stations) == 2  # no third station created
+
+
+def test_at_station_ceiling_can_still_refresh_existing_station(
+    client: TestClient,
+    db: Session,
+    device_ca: _DeviceCA,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A user AT the owned-station ceiling can still re-enroll (refresh the cert
+    of) an EXISTING station — the ceiling gates new stations only, and refresh
+    has no other path (D2/D1). A new device at the ceiling is still refused.
+    """
+    monkeypatch.setattr(settings, "MAX_STATIONS_PER_USER", 1)
+    _, headers = _operator(db, client)
+    device_key = ec.generate_private_key(ec.SECP256R1())
+
+    async def _fake_sign(csr: str) -> SignedCertificate:
+        return _signed_cert_for(csr, device_ca.intermediate)
+
+    first = _create_session(client, headers)
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r1 = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{first.session_id}",
+            json={
+                "auth_token": first.auth_token,
+                "csr_pem": _csr_with_key(device_key),
+            },
+        )
+    assert r1.status_code == 200, r1.text  # user is now AT the ceiling (1 station)
+    station_id = uuid.UUID(r1.json()["station_id"])
+
+    # Refresh the SAME station (same key) while at the ceiling -> allowed.
+    second = _create_session(client, headers)
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r2 = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{second.session_id}",
+            json={
+                "auth_token": second.auth_token,
+                "csr_pem": _csr_with_key(device_key),
+            },
+        )
+    assert r2.status_code == 200, r2.text
+    assert uuid.UUID(r2.json()["station_id"]) == station_id  # refreshed, not new
+
+    # A NEW device at the ceiling is refused.
+    third = _create_session(client, headers)
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r3 = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{third.session_id}",
+            json={
+                "auth_token": third.auth_token,
+                "csr_pem": _csr_with_key(ec.generate_private_key(ec.SECP256R1())),
+            },
+        )
+    assert r3.status_code == 403, r3.text
 
 
 def test_create_at_active_session_ceiling_returns_403(

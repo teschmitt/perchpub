@@ -207,6 +207,47 @@ def test_station_spki_sha256_is_unique(db: Session) -> None:
     db.rollback()
 
 
+def test_create_station_at_ceiling_returns_403(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The owned-station ceiling is enforced on direct POST /station/ too, so it
+    cannot be bypassed to overshoot the cap (D2)."""
+    monkeypatch.setattr(settings, "MAX_STATIONS_PER_USER", 2)
+    password = random_lower_string()
+    owner = _seed_user(db, password=password)
+    for _ in range(2):
+        db.add(Station(latitude=0.0, longitude=0.0, owner_id=owner.id))
+    db.commit()
+
+    headers = user_authentication_headers(
+        client=client, email=owner.email, password=password
+    )
+    r = client.post(
+        f"{settings.API_V1_STR}/station/",
+        json={"latitude": 1.0, "longitude": 2.0},
+        headers=headers,
+    )
+    assert r.status_code == 403, r.text
+    stations = db.exec(select(Station).where(Station.owner_id == owner.id)).all()
+    assert len(stations) == 2  # none created
+
+
+def test_create_station_quota_exempts_superuser(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Superusers are exempt from the station ceiling on POST /station/."""
+    monkeypatch.setattr(settings, "MAX_STATIONS_PER_USER", 0)
+    r = client.post(
+        f"{settings.API_V1_STR}/station/",
+        json={"latitude": 1.0, "longitude": 2.0},
+        headers=superuser_token_headers,
+    )
+    assert r.status_code == 200, r.text
+
+
 def test_read_stations_owner_excludes_revoked(
     client: TestClient, db: Session
 ) -> None:

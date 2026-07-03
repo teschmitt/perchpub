@@ -11,6 +11,7 @@ from app.api.deps import (
     SessionDep,
     client_source,
 )
+from app.core.quotas import enforce_station_quota
 from app.models.enrollment import EnrollmentAudit, EnrollmentAuditEvent
 from app.models.station import (
     Station,
@@ -92,7 +93,11 @@ def create_station(
     """
     Create new station.
     """
-    # TODO: add owner field
+    # The owned-station ceiling applies here too, so it cannot be bypassed by
+    # creating stations directly instead of through enrollment (D2).
+    enforce_station_quota(
+        session, current_user.id, is_superuser=current_user.is_superuser
+    )
 
     station = Station.model_validate(station_in, update={"owner_id": current_user.id})
     session.add(station)
