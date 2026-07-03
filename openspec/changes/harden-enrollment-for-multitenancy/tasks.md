@@ -32,7 +32,7 @@ Implementation is TDD off the `#### Scenario`s in [specs/enrollment-hardening/sp
 
 ## 5. Verify and gate
 
-- [ ] 5.1 `cd backend && bash scripts/lint.sh && bash scripts/test.sh` green.
-- [ ] 5.2 `openspec validate harden-enrollment-for-multitenancy --strict` passes.
-- [ ] 5.3 Docs: operator-facing revocation runbook (how to `POST /station/{id}/revoke`, what "revoked" means and the leaf-expiry residual window) and the documented limits/quotas for station authors.
+- [x] 5.1 `cd backend && bash scripts/lint.sh && bash scripts/test.sh` green.
+- [x] 5.2 `openspec validate harden-enrollment-for-multitenancy --strict` passes.
+- [x] 5.3 Docs: operator-facing revocation runbook (how to `POST /station/{id}/revoke`, what "revoked" means and the leaf-expiry residual window) and the documented limits/quotas for station authors.
 - [ ] 5.4 `requesting-code-review` before merge; then archive (`openspec archive harden-enrollment-for-multitenancy`), folding the delta into `openspec/specs/enrollment-hardening/`.

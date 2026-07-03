@@ -33,6 +33,7 @@ Everything runtime-configurable lives in `backend/app/core/config.py` and is sup
 - Object storage `GARAGE_*` — `GARAGE_ENDPOINT`, `GARAGE_BUCKET_NAME`, `GARAGE_KEY_ID`, `GARAGE_SECRET`, `GARAGE_USE_TLS`, and `GARAGE_REGION`. `GARAGE_REGION` is the SigV4 signature region: `garage` for self-hosted Garage / Minio, and the bucket's lowercase region for a cloud provider (OVH `GRA` → `gra`).
 - `CA_NAME`, `STEP_CA_*` — step-ca integration (see below).
 - `CLASSIFICATION_MODEL_OBJECT_NAME` / `CLASSIFICATION_LABELS_OBJECT_NAME`, `HUEY_*`.
+- Enrollment safety controls (multi-tenant) — `ENROLLMENT_CREATE_RATE_PER_MIN`, `ENROLLMENT_CONFIRM_RATE_PER_MIN`, `MAX_ACTIVE_ENROLLMENT_SESSIONS_PER_USER`, `MAX_STATIONS_PER_USER`, `ENROLLMENT_AUDIT_RETENTION_DAYS`. See [Enrollment safety controls](#enrollment-safety-controls-multi-tenant).
 
 ### Generate secret keys
 
@@ -148,6 +149,50 @@ csr_pem = csr.public_bytes(serialization.Encoding.PEM).decode("utf-8")
 ```
 
 The `device.crt` / `device.key` used by the post-apply smoke test ([deploy/terraform/README.md](./deploy/terraform/README.md) §4) are, respectively, the leaf returned by enrollment for this CSR and the private key generated here.
+
+## Enrollment safety controls (multi-tenant)
+
+When PerchPub is exposed to many mutually-distrusting users sharing one device CA, the enrollment flow is bounded by rate limits, per-user quotas, an audit trail, and application-layer revocation (the `harden-enrollment-for-multitenancy` change). All are env-configurable via `backend/app/core/config.py` → `.env.prod`; the defaults are conservative starting points and can be tuned without a code change.
+
+### Rate limits and quotas
+
+| Setting | Default | Applies to |
+| --- | --- | --- |
+| `ENROLLMENT_CREATE_RATE_PER_MIN` | `5` | `POST /api/v1/enrollment/create`, per authenticated user |
+| `ENROLLMENT_CONFIRM_RATE_PER_MIN` | `10` | `POST /api/v1/enrollment/confirm/{session_id}`, per source IP (on top of the ≤3-attempts-per-session cap) |
+| `MAX_ACTIVE_ENROLLMENT_SESSIONS_PER_USER` | `5` | ceiling on concurrently-active (unclaimed, unexpired) sessions |
+| `MAX_STATIONS_PER_USER` | `25` | ceiling on owned, non-revoked stations |
+
+- **Rate limits are a throttle, not the security boundary.** They are Redis-backed (the in-stack Huey Redis) and **fail open**: if Redis is unreachable the limiter logs a warning and allows the request. Exceeding a rate yields `429` + `Retry-After` *before* any CSR is signed or row written.
+- **Quotas are DB-backed and always enforced.** Exceeding a quota yields `403` with nothing persisted.
+- **Superusers are exempt** from the create-rate and both quotas.
+
+### Enrollment audit trail
+
+Session creation, successful confirms, and revocations are recorded in the `enrollment_audit` table (actor, source IP, user-agent, originating session, resulting `spki_sha256` + `station_id`, timestamp) so a leaked-token incident is reconstructable and a rogue enrollment is attributable. Query it directly (Adminer, or `docker compose ... exec db psql`). Rows are purged after `ENROLLMENT_AUDIT_RETENTION_DAYS` (default `180`) by a nightly Huey periodic task in the `worker` container.
+
+### Revoking a station
+
+Revocation is enforced at the **application identity layer** — `get_current_station`, the sole cert→account authority (the only place a certificate is mapped to a station/owner). The Traefik file-provider mTLS edge cannot consult a CRL/OCSP, so cryptographic revocation at the TLS handshake is a separate, deferred effort; app-layer revocation plus short leaf lifetimes is the current control.
+
+Revoke as the station's **owner** (or a superuser) — obtain an access token from `POST /api/v1/login/access-token`, then:
+
+```bash
+curl -X POST https://api.perchpub.net/api/v1/station/<STATION_ID>/revoke \
+  -H "Authorization: Bearer <ACCESS_TOKEN>"
+```
+
+What revocation does — immediately, at the resolver:
+
+- The station's certificate **no longer authenticates**: an mTLS upload presenting its leaf is refused with the generic `401` — no upload is stored and nothing is attributed to it.
+- The station **drops out of the active station list** (`GET /api/v1/station/`), for its owner and superusers alike.
+- It is **non-destructive** (existing observations and uploads are retained) and writes a `station_revoked` audit row; and **idempotent** (re-revoking keeps the original `revoked_at`).
+- A non-owner is refused — `403` for a public station, `404` for a private one (mirroring station update's existence-leak avoidance).
+
+Residual window and recovery:
+
+- A revoked leaf can still complete a **TLS handshake** until it expires, then is refused with `401` — so it performs no action (an integrity-neutral, rate-limited concern). The window is bounded by the device leaf's own lifetime.
+- **Recovery is a fresh device key, not un-revoking:** re-enrolling the *same* key (same SPKI) is refused with `409`. Generate a new keypair → new CSR → new SPKI → a new `Station`.
 
 ## Post-deploy smoke test
 
