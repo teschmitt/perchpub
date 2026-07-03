@@ -110,6 +110,7 @@ def create_enrollment_session(
         owner_id=current_user.id,
         latitude=create_in.latitude,
         longitude=create_in.longitude,
+        is_private=create_in.is_private,
     )
 
     session.add(enrollment_token)
@@ -224,6 +225,7 @@ async def enroll_station(
             longitude=enrollment_session.longitude,
             owner_id=enrollment_session.owner_id,
             spki_sha256=spki_pin,
+            is_private=enrollment_session.is_private,
         )
         session.add(station)
         session.flush()

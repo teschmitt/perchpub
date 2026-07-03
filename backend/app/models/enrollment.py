@@ -21,6 +21,8 @@ class EnrollmentToken(SQLModel, table=True):
     )
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
+    # Privacy is chosen at setup and applied to the Station born at confirm time.
+    is_private: bool = Field(default=False, nullable=False)
 
 
 class EnrollmentSessionCreate(SQLModel):
@@ -28,6 +30,7 @@ class EnrollmentSessionCreate(SQLModel):
 
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
+    is_private: bool = False
 
 
 class EnrollmentSession(SQLModel):

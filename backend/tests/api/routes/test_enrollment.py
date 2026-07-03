@@ -134,11 +134,16 @@ def _operator(db: Session, client: TestClient) -> tuple[User, dict[str, str]]:
     return user, headers
 
 
-def _create_session(client: TestClient, headers: dict[str, str]) -> EnrollmentSession:
+def _create_session(
+    client: TestClient, headers: dict[str, str], *, is_private: bool | None = None
+) -> EnrollmentSession:
+    body: dict[str, object] = {"latitude": 47.5, "longitude": 8.7}
+    if is_private is not None:
+        body["is_private"] = is_private
     r = client.post(
         f"{settings.API_V1_STR}/enrollment/create",
         headers=headers,
-        json={"latitude": 47.5, "longitude": 8.7},
+        json=body,
     )
     assert r.status_code == 200, r.text
     return EnrollmentSession(**r.json())
@@ -508,6 +513,99 @@ def test_confirm_empty_intermediate_chain_returns_502(
     assert token is not None
     assert token.claimed is False
     assert token.station_id is None
+
+
+def test_confirm_private_session_yields_private_station(
+    client: TestClient, db: Session, device_ca: _DeviceCA
+) -> None:
+    """A session created with is_private=True yields a new *private* station.
+
+    Privacy is chosen at setup (create), stored on the enrollment session, and
+    applied to the Station born at confirm time.
+    """
+    _, headers = _operator(db, client)
+    enrollment = _create_session(client, headers, is_private=True)
+
+    async def _fake_sign(csr: str) -> SignedCertificate:
+        return _signed_cert_for(csr, device_ca.intermediate)
+
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{enrollment.session_id}",
+            json={"auth_token": enrollment.auth_token, "csr_pem": make_csr()},
+        )
+
+    assert r.status_code == 200, r.text
+    station = db.get(Station, uuid.UUID(r.json()["station_id"]))
+    assert station is not None
+    assert station.is_private is True
+
+
+def test_confirm_omitted_privacy_defaults_public(
+    client: TestClient, db: Session, device_ca: _DeviceCA
+) -> None:
+    """Omitting is_private at create yields a new *public* station (default False)."""
+    _, headers = _operator(db, client)
+    enrollment = _create_session(client, headers)  # is_private omitted
+
+    async def _fake_sign(csr: str) -> SignedCertificate:
+        return _signed_cert_for(csr, device_ca.intermediate)
+
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{enrollment.session_id}",
+            json={"auth_token": enrollment.auth_token, "csr_pem": make_csr()},
+        )
+
+    assert r.status_code == 200, r.text
+    station = db.get(Station, uuid.UUID(r.json()["station_id"]))
+    assert station is not None
+    assert station.is_private is False
+
+
+def test_reenroll_does_not_alter_existing_privacy(
+    client: TestClient, db: Session, device_ca: _DeviceCA
+) -> None:
+    """Re-enrolling an existing device (same SPKI) through a session whose
+    is_private differs leaves the existing station's privacy unchanged.
+
+    Privacy is a station-management operation on an existing station, not a side
+    effect of refreshing a certificate — mirroring how coordinates are create-only.
+    """
+    _, headers = _operator(db, client)
+    device_key = ec.generate_private_key(ec.SECP256R1())
+
+    async def _fake_sign(csr: str) -> SignedCertificate:
+        return _signed_cert_for(csr, device_ca.intermediate)
+
+    # First enrollment creates a PRIVATE station.
+    first = _create_session(client, headers, is_private=True)
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r1 = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{first.session_id}",
+            json={"auth_token": first.auth_token, "csr_pem": _csr_with_key(device_key)},
+        )
+    assert r1.status_code == 200, r1.text
+    station_id = uuid.UUID(r1.json()["station_id"])
+
+    # Re-enroll the SAME device through a session that says is_private=False.
+    second = _create_session(client, headers, is_private=False)
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r2 = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{second.session_id}",
+            json={
+                "auth_token": second.auth_token,
+                "csr_pem": _csr_with_key(device_key),
+            },
+        )
+    assert r2.status_code == 200, r2.text
+    assert uuid.UUID(r2.json()["station_id"]) == station_id
+
+    # Privacy is unchanged — still private, despite the second session's False.
+    db.expire_all()
+    station = db.get(Station, station_id)
+    assert station is not None
+    assert station.is_private is True
 
 
 def test_confirm_missing_root_leaves_session_unclaimed(
