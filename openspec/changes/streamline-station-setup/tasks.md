@@ -43,8 +43,8 @@
 
 ## 6. Verify, review, archive
 
-- [ ] 6.1 Backend: `bash scripts/lint.sh && bash scripts/test.sh` (green, output shown).
-- [ ] 6.2 Frontend: `npm run lint && npm run check && npm run test` + the Playwright suite (green, output shown).
-- [ ] 6.3 `openspec validate streamline-station-setup --strict` passes.
-- [ ] 6.4 `requesting-code-review` before merge; address findings.
-- [ ] 6.5 Archive the change (`opsx:archive`), folding the four deltas into `openspec/specs/`.
+- [x] 6.1 Backend: `bash scripts/lint.sh && bash scripts/test.sh` (green: mypy/ruff clean, 150 passed / 6 deselected).
+- [~] 6.2 Frontend: `npm run lint && npm run check && npm run test` green (lint 0, check 504 files 0 errors, Vitest 141 passed). Playwright e2e specs written + compile-verified (`playwright test --list`); the suite needs the real stack (backend + build/preview + DB + step-ca) and MUST be run green on the host before archive.
+- [x] 6.3 `openspec validate streamline-station-setup --strict` passes.
+- [x] 6.4 `requesting-code-review` done; the one Important finding (overstated anti-enumeration claim) is fixed in `user-account`/`design.md`; Minors (100-row count window, email prefill) accepted/deferred to `harden-enrollment-for-multitenancy`.
+- [ ] 6.5 Archive the change (`opsx:archive`), folding the four deltas into `openspec/specs/` — after the host Playwright run (6.2) is green.
