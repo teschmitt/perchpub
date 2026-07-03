@@ -1,95 +1,172 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import EnrollToken from '$lib/components/enroll-token.svelte';
+	import type { EnrollSession } from '$lib/enrollment';
 	import type { ActionData } from './$types';
 
 	let { form }: { form: ActionData } = $props();
 
-	const values = $derived(form?.values ?? { latitude: '', longitude: '', is_private: false });
+	// Capture the one-time session in memory-only state so a later "check" submit
+	// keeps the token panel visible. Cleared on navigation/reload — never persisted.
+	let session = $state<EnrollSession | null>(null);
+	let baseline = $state<string[]>([]);
+
+	$effect(() => {
+		if (form?.intent === 'create' && form.session) {
+			session = form.session;
+			baseline = form.baseline ?? [];
+		}
+	});
+
+	const createValues = $derived(
+		form?.intent === 'create'
+			? (form.values ?? { latitude: '', longitude: '', is_private: false })
+			: { latitude: '', longitude: '', is_private: false }
+	);
+	const checkResult = $derived(form?.intent === 'check' ? form : null);
 </script>
 
 <svelte:head>
-	<title>New station · PerchPub</title>
+	<title>Set up a station · PerchPub</title>
 </svelte:head>
 
 <section class="mx-auto max-w-lg space-y-6">
-	<div>
-		<a href="/stations/mine" class="text-sm text-muted-foreground hover:text-primary"
-			>← My stations</a
-		>
-		<h1 class="mt-2 text-2xl font-semibold text-foreground">New station</h1>
-	</div>
+	<h1 class="text-2xl font-semibold text-foreground">Set up a station</h1>
 
-	<form method="POST" use:enhance data-testid="station-form" class="flex flex-col gap-4">
-		{#if form?.formError}
-			<p
-				data-testid="form-error"
-				role="alert"
-				class="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+	{#if !session}
+		<p class="text-sm text-muted-foreground">
+			Enter the new station's coordinates and choose whether it's private, then start setup. You'll
+			get a one-time token to run on the Raspberry Pi that pairs the device to this station.
+		</p>
+
+		<form
+			method="POST"
+			action="?/create"
+			use:enhance
+			data-testid="enroll-form"
+			class="flex flex-col gap-4"
+		>
+			{#if form?.intent === 'create' && form.formError}
+				<p
+					data-testid="form-error"
+					role="alert"
+					class="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+				>
+					{form.formError}
+				</p>
+			{/if}
+
+			<label class="flex flex-col gap-1 text-sm font-medium" for="latitude">
+				Latitude
+				<input
+					id="latitude"
+					name="latitude"
+					type="number"
+					step="any"
+					min="-90"
+					max="90"
+					required
+					data-testid="latitude-input"
+					value={createValues.latitude}
+					class="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+				/>
+				{#if form?.intent === 'create' && form.errors?.latitude}
+					<span data-testid="latitude-error" class="text-xs text-destructive">
+						{form.errors.latitude}
+					</span>
+				{/if}
+			</label>
+
+			<label class="flex flex-col gap-1 text-sm font-medium" for="longitude">
+				Longitude
+				<input
+					id="longitude"
+					name="longitude"
+					type="number"
+					step="any"
+					min="-180"
+					max="180"
+					required
+					data-testid="longitude-input"
+					value={createValues.longitude}
+					class="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+				/>
+				{#if form?.intent === 'create' && form.errors?.longitude}
+					<span data-testid="longitude-error" class="text-xs text-destructive">
+						{form.errors.longitude}
+					</span>
+				{/if}
+			</label>
+
+			<label class="flex items-center gap-2 text-sm font-medium">
+				<input
+					name="is_private"
+					type="checkbox"
+					data-testid="is-private-input"
+					checked={createValues.is_private}
+					class="size-4 rounded border-input"
+				/>
+				Private (hidden from other viewers)
+			</label>
+
+			<button
+				type="submit"
+				data-testid="start-enrollment"
+				class="mt-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
 			>
-				{form.formError}
+				Start setup
+			</button>
+		</form>
+
+		<!-- Defer-to-later escape: creates no station; the dashboard's onboarding hero
+		     keeps recommending setup until one exists (so "later" is never a dead end). -->
+		<p class="text-center text-sm text-muted-foreground">
+			Not ready yet?
+			<a href="/dashboard" data-testid="defer-setup" class="text-primary hover:underline">
+				Do it later
+			</a>
+		</p>
+	{:else}
+		<EnrollToken
+			token={session.auth_token}
+			sessionId={session.session_id}
+			caPin={session.ca_pin}
+			expiresAt={session.expires_at}
+		/>
+
+		<div class="space-y-3 rounded-lg border border-border p-5">
+			<h2 class="text-base font-semibold text-foreground">Waiting for the device</h2>
+			<p class="text-sm text-muted-foreground">
+				Once the Raspberry Pi finishes enrollment, its station appears in your list. There is no
+				live status — check when the device reports success.
 			</p>
-		{/if}
 
-		<label class="flex flex-col gap-1 text-sm font-medium" for="latitude">
-			Latitude
-			<!-- Map picker deferred: plain numeric coordinate input for now. -->
-			<input
-				id="latitude"
-				name="latitude"
-				type="number"
-				step="any"
-				min="-90"
-				max="90"
-				required
-				data-testid="latitude-input"
-				value={values.latitude}
-				class="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-			/>
-			{#if form?.errors?.latitude}
-				<span data-testid="latitude-error" class="text-xs text-destructive">
-					{form.errors.latitude}
-				</span>
+			{#if checkResult && checkResult.newStationId}
+				<p data-testid="check-found" class="text-sm text-foreground">
+					Your new station is enrolled.
+					<a
+						href={`/stations/${checkResult.newStationId}/edit`}
+						class="text-primary hover:underline"
+					>
+						Manage it
+					</a>
+				</p>
+			{:else if checkResult}
+				<p data-testid="check-pending" class="text-sm text-muted-foreground">
+					No new station yet. Give the device a moment, then check again.
+				</p>
 			{/if}
-		</label>
 
-		<label class="flex flex-col gap-1 text-sm font-medium" for="longitude">
-			Longitude
-			<input
-				id="longitude"
-				name="longitude"
-				type="number"
-				step="any"
-				min="-180"
-				max="180"
-				required
-				data-testid="longitude-input"
-				value={values.longitude}
-				class="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-			/>
-			{#if form?.errors?.longitude}
-				<span data-testid="longitude-error" class="text-xs text-destructive">
-					{form.errors.longitude}
-				</span>
-			{/if}
-		</label>
-
-		<label class="flex items-center gap-2 text-sm font-medium">
-			<input
-				name="is_private"
-				type="checkbox"
-				data-testid="is-private-input"
-				checked={values.is_private}
-				class="size-4 rounded border-input"
-			/>
-			Private (hidden from other viewers)
-		</label>
-
-		<button
-			type="submit"
-			data-testid="submit"
-			class="mt-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-		>
-			Create station
-		</button>
-	</form>
+			<form method="POST" action="?/check" use:enhance>
+				<input type="hidden" name="baseline" value={JSON.stringify(baseline)} />
+				<button
+					type="submit"
+					data-testid="check-station"
+					class="rounded-md border border-input px-4 py-2 text-sm font-medium hover:bg-accent"
+				>
+					Check for the new station
+				</button>
+			</form>
+		</div>
+	{/if}
 </section>

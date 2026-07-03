@@ -653,6 +653,11 @@ export interface components {
 			latitude: number;
 			/** Longitude */
 			longitude: number;
+			/**
+			 * Is Private
+			 * @default false
+			 */
+			is_private: boolean;
 		};
 		/** HTTPValidationError */
 		HTTPValidationError: {

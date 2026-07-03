@@ -62,7 +62,7 @@ export interface EnrollResult {
 	/** `check`: id of a newly enrolled station, or null when none appeared. */
 	newStationId?: string | null;
 	errors?: StationFieldErrors;
-	values?: { latitude: string; longitude: string };
+	values?: { latitude: string; longitude: string; is_private: boolean };
 	formError?: string;
 }
 

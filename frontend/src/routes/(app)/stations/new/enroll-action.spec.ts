@@ -51,7 +51,11 @@ describe('enroll create action', () => {
 			(c[0] as unknown as Request).url.endsWith('/api/v1/enrollment/create')
 		)![0] as unknown as Request;
 		expect(createReq.method).toBe('POST');
-		await expect(createReq.json()).resolves.toEqual({ latitude: 52.5, longitude: 13.4 });
+		await expect(createReq.json()).resolves.toEqual({
+			latitude: 52.5,
+			longitude: 13.4,
+			is_private: false
+		});
 
 		expect(result).toMatchObject({
 			intent: 'create',
@@ -62,6 +66,33 @@ describe('enroll create action', () => {
 				expires_at: SESSION.expires_at
 			},
 			baseline: ['s-existing']
+		});
+	});
+
+	it('forwards the operator privacy choice (is_private) to /enrollment/create', async () => {
+		const fetchMock = vi.fn<(input: Request) => Promise<Response>>(async (req) => {
+			if (req.url.endsWith('/api/v1/enrollment/create')) {
+				return jsonResponse(200, SESSION);
+			}
+			return jsonResponse(200, { data: [], count: 0 });
+		});
+
+		await actions.create(
+			fakeActionEvent({
+				form: { latitude: '52.5', longitude: '13.4', is_private: 'on' },
+				locals: { session: 'owner-jwt', user: fakeUser() },
+				fetch: fetchMock as unknown as typeof fetch,
+				setHeaders: vi.fn()
+			}) as Parameters<typeof actions.create>[0]
+		);
+
+		const createReq = fetchMock.mock.calls.find((c) =>
+			(c[0] as unknown as Request).url.endsWith('/api/v1/enrollment/create')
+		)![0] as unknown as Request;
+		await expect(createReq.json()).resolves.toEqual({
+			latitude: 52.5,
+			longitude: 13.4,
+			is_private: true
 		});
 	});
 
