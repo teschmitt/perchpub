@@ -91,10 +91,17 @@ def get_current_active_superuser(current_user: CurrentUser) -> User:
 def client_source(request: Request) -> str | None:
     """Best-effort origin identifier for audit trails and per-source throttling.
 
-    Prefer the leftmost ``X-Forwarded-For`` hop (the original client, populated
-    by the Traefik mTLS entrypoint), falling back to the socket peer. Only
-    trustworthy behind that entrypoint — the same entrypoint-isolation trust
-    boundary as the mTLS client-cert header (see ``get_current_station``).
+    Prefer the leftmost ``X-Forwarded-For`` hop (the original client), falling
+    back to the socket peer. This is sound ONLY while Traefik is the direct edge
+    with no trusted upstream: with no ``forwardedHeaders.trustedIPs`` configured,
+    Traefik discards an attacker-supplied inbound XFF and rewrites it from the
+    real peer, so the leftmost hop is the true client. If a CDN/LB is ever
+    fronted (or ``trustedIPs`` is set), the leftmost hop becomes client-spoofable
+    — the per-source rate limit could then be bypassed by rotating it and the
+    audit ``source`` poisoned; revisit this choice at that point. The enrollment
+    endpoints ride the ordinary HTTPS edge, not the mTLS entrypoint, so this is a
+    weaker boundary than the mTLS cert header — it gates a throttle + audit, not
+    authorization.
     """
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:

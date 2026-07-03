@@ -164,8 +164,9 @@ When PerchPub is exposed to many mutually-distrusting users sharing one device C
 | `MAX_STATIONS_PER_USER` | `25` | ceiling on owned, non-revoked stations |
 
 - **Rate limits are a throttle, not the security boundary.** They are Redis-backed (the in-stack Huey Redis) and **fail open**: if Redis is unreachable the limiter logs a warning and allows the request. Exceeding a rate yields `429` + `Retry-After` *before* any CSR is signed or row written.
-- **Quotas are DB-backed and always enforced.** Exceeding a quota yields `403` with nothing persisted.
+- **Quotas are DB-backed and always enforced.** Exceeding a quota yields `403` with nothing persisted. The station ceiling is checked when an enrollment **session is created**, so the true station count can overshoot `MAX_STATIONS_PER_USER` by at most `MAX_ACTIVE_ENROLLMENT_SESSIONS_PER_USER`.
 - **Superusers are exempt** from the create-rate and both quotas.
+- **The confirm limit and the audit `source` key on the leftmost `X-Forwarded-For` hop.** This is trustworthy only because Traefik is the direct edge with no trusted upstream (it rewrites inbound XFF from the real peer). If you ever front PerchPub with a CDN/LB — or set Traefik `forwardedHeaders.trustedIPs` — revisit this: the leftmost hop becomes client-controlled, letting the per-source limit be bypassed and the audit source poisoned. Note also that many stations behind one NAT share the per-source confirm budget, so raise `ENROLLMENT_CONFIRM_RATE_PER_MIN` for sites enrolling several devices at once.
 
 ### Enrollment audit trail
 

@@ -122,6 +122,10 @@ def create_enrollment_session(
                 detail="active enrollment session limit reached",
             )
         # Owned, non-revoked stations — a revoked station frees a quota slot (D1).
+        # This is a create-time gate (per spec), so the true station count can
+        # overshoot MAX_STATIONS_PER_USER by at most the active-session ceiling
+        # (a user may confirm sessions opened while under the cap); the active-
+        # session quota bounds that slack.
         owned_stations = session.exec(
             select(func.count())
             .select_from(Station)

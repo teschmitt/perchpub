@@ -258,6 +258,39 @@ def test_revoke_station_owner_succeeds(client: TestClient, db: Session) -> None:
     assert rows[0].actor_user_id == owner.id
 
 
+def test_revoke_station_is_idempotent(client: TestClient, db: Session) -> None:
+    """Re-revoking keeps the original revoked_at and writes no second audit row."""
+    password = random_lower_string()
+    owner = _seed_user(db, password=password)
+    station = _seed_station(db, owner=owner, is_private=False)
+    headers = user_authentication_headers(
+        client=client, email=owner.email, password=password
+    )
+
+    r1 = client.post(
+        f"{settings.API_V1_STR}/station/{station.id}/revoke", headers=headers
+    )
+    assert r1.status_code == 200, r1.text
+    db.refresh(station)
+    first_revoked_at = station.revoked_at
+    assert first_revoked_at is not None
+
+    r2 = client.post(
+        f"{settings.API_V1_STR}/station/{station.id}/revoke", headers=headers
+    )
+    assert r2.status_code == 200, r2.text
+    db.refresh(station)
+    assert station.revoked_at == first_revoked_at  # timestamp unchanged
+
+    rows = db.exec(
+        select(EnrollmentAudit).where(
+            EnrollmentAudit.station_id == station.id,
+            EnrollmentAudit.event == EnrollmentAuditEvent.station_revoked,
+        )
+    ).all()
+    assert len(rows) == 1  # one audit row despite two revoke calls
+
+
 def test_revoke_station_superuser_succeeds(
     client: TestClient, db: Session, superuser_token_headers: dict[str, str]
 ) -> None:
