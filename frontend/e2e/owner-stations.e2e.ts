@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { signupUser, uiLogin, uniqueEmail } from './helpers';
+import { apiLoginAs, createStation, signupUser, uiLogin, uniqueEmail } from './helpers';
 
 const PASSWORD = 'password1234';
 
@@ -9,34 +9,41 @@ test('an unauthenticated visit to the owner station list redirects to login', as
 	await expect(page.getByTestId('email-input')).toBeVisible();
 });
 
-test('an owner creates a station and sees it in their list', async ({ page, request }) => {
+test('an owner sees their station and a quiet secondary Add-station action to the setup wizard', async ({
+	page,
+	request
+}) => {
 	const email = uniqueEmail('stationowner');
 	await signupUser(request, email, PASSWORD, 'Station Owner');
+	// Station creation is unified into the enrollment wizard; the device-less
+	// create UI is gone. Seed the owner's station through the retained backend
+	// endpoint (kept for tooling/tests) so we can exercise the list surface.
+	const token = await apiLoginAs(request, email, PASSWORD);
+	await createStation(request, token, { latitude: 12.3456, longitude: 65.4321, is_private: false });
+
 	await uiLogin(page, email, PASSWORD);
-
 	await page.goto('/stations/mine');
-	await page.getByTestId('new-station').click();
-	await page.waitForURL('**/stations/new');
-
-	await page.getByTestId('latitude-input').fill('12.3456');
-	await page.getByTestId('longitude-input').fill('65.4321');
-	await page.getByTestId('submit').click();
-
-	await page.waitForURL('**/stations/mine');
 	await expect(page.getByTestId('my-stations')).toContainText('12.3456, 65.4321');
+
+	// "Add station" is a quiet secondary action routed to the setup wizard, and
+	// there is no primary-styled "New station" button or device-less create form.
+	const addStation = page.getByTestId('add-station');
+	await expect(addStation).toHaveAttribute('href', '/stations/new');
+	await expect(page.getByTestId('new-station')).toHaveCount(0);
 });
 
 test("an owner toggles a station's privacy from the edit form", async ({ page, request }) => {
 	const email = uniqueEmail('editowner');
 	await signupUser(request, email, PASSWORD);
-	await uiLogin(page, email, PASSWORD);
+	const token = await apiLoginAs(request, email, PASSWORD);
+	await createStation(request, token, {
+		latitude: 40.1234,
+		longitude: -73.9876,
+		is_private: false
+	});
 
-	// Create a public station via the UI.
-	await page.goto('/stations/new');
-	await page.getByTestId('latitude-input').fill('40.1234');
-	await page.getByTestId('longitude-input').fill('-73.9876');
-	await page.getByTestId('submit').click();
-	await page.waitForURL('**/stations/mine');
+	await uiLogin(page, email, PASSWORD);
+	await page.goto('/stations/mine');
 	await expect(page.getByTestId('private-badge')).toHaveCount(0);
 
 	// Open the edit form and toggle is_private on.

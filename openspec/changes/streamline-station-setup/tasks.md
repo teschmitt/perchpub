@@ -12,34 +12,34 @@
 
 ## 2. Frontend — relocate the wizard to `/stations/new` + privacy (TDD)
 
-- [ ] 2.1 Regenerate the typed API client so `EnrollmentSessionCreate` carries `is_private` (run the committed generate-client script against the backend).
-- [ ] 2.2 Route move (TDD): delete the device-less `frontend/src/routes/(app)/stations/new/` (`+page.svelte`, `+page.server.ts`, `create-action.spec.ts`); relocate the enrollment wizard from `frontend/src/routes/(app)/enroll/` into `frontend/src/routes/(app)/stations/new/` (page, server action, and its specs — `enroll-action.spec.ts`, `enroll-qr.spec.ts`, etc.); add a `308` redirect from `/enroll` to `/stations/new`. Tests: `/stations/new` serves the wizard and no device-less create form; `/enroll` redirects (scenarios: *`/stations/new` serves the setup wizard, not a device-less form* / *the legacy enroll route redirects to the setup wizard*).
-- [ ] 2.3 Write failing Vitest for the wizard `create` action (now at `(app)/stations/new/`): a submitted `is_private` is forwarded in the `POST /enrollment/create` body (scenario: *the operator chooses the station's privacy at setup*); assert the lat/long path still works (regression: *an operator starts an enrollment session*).
-- [ ] 2.4 Add an `is_private` checkbox to the wizard form (`(app)/stations/new/+page.svelte`) and thread it through `parseStationForm`/the create action in `+page.server.ts`.
-- [ ] 2.5 `npm run lint && npm run check && npm run test` green.
+- [x] 2.1 Regenerate the typed API client so `EnrollmentSessionCreate` carries `is_private` (run the committed generate-client script against the backend).
+- [x] 2.2 Route move (TDD): delete the device-less `frontend/src/routes/(app)/stations/new/` (`+page.svelte`, `+page.server.ts`, `create-action.spec.ts`); relocate the enrollment wizard from `frontend/src/routes/(app)/enroll/` into `frontend/src/routes/(app)/stations/new/` (page, server action, and its specs — `enroll-action.spec.ts`, `enroll-qr.spec.ts`, etc.); add a `308` redirect from `/enroll` to `/stations/new`. Tests: `/stations/new` serves the wizard and no device-less create form; `/enroll` redirects (scenarios: *`/stations/new` serves the setup wizard, not a device-less form* / *the legacy enroll route redirects to the setup wizard*).
+- [x] 2.3 Write failing Vitest for the wizard `create` action (now at `(app)/stations/new/`): a submitted `is_private` is forwarded in the `POST /enrollment/create` body (scenario: *the operator chooses the station's privacy at setup*); assert the lat/long path still works (regression: *an operator starts an enrollment session*).
+- [x] 2.4 Add an `is_private` checkbox to the wizard form (`(app)/stations/new/+page.svelte`) and thread it through `parseStationForm`/the create action in `+page.server.ts`.
+- [x] 2.5 `npm run lint && npm run check && npm run test` green.
 
 ## 3. Frontend — app shell: nav + dashboard onboarding + quiet add-station (TDD)
 
-- [ ] 3.1 Write failing test: the `(app)` sidebar shows Dashboard / My stations / Account and **no** standalone "Enroll device" item (scenario: *the sidebar has no standalone enroll destination*). Remove the `nav-enroll` link from `frontend/src/routes/(app)/+layout.svelte`.
-- [ ] 3.2 Write failing test for a new dashboard `load` (`frontend/src/routes/(app)/dashboard/+page.server.ts`): it counts the user's owned stations (reusing `GET /station/` + `isOwnStation`, as `stations/mine` does). Implement the loader.
-- [ ] 3.3 Write failing test: dashboard with **zero** owned stations renders a prominent "set up your first station" CTA linking to `/stations/new`; with **≥1** it does not (scenarios: *a user with no stations sees the setup call to action* / *a user with a station sees the normal dashboard*). Implement in `dashboard/+page.svelte`, replacing the equal-weight three-card layout.
-- [ ] 3.4 Write failing test: `/stations/mine` shows a **secondary** "Add station" action linking to `/stations/new`, no primary "New station" button, and its empty state points to `/stations/new` (scenarios: *the station list offers a quiet Add-station action* / *the empty station list points to the setup wizard*). Update `stations/mine/+page.svelte`.
-- [ ] 3.5 `npm run lint && npm run check && npm run test` green.
+- [x] 3.1 Write failing test: the `(app)` sidebar shows Dashboard / My stations / Account and **no** standalone "Enroll device" item (scenario: *the sidebar has no standalone enroll destination*). Remove the `nav-enroll` link from `frontend/src/routes/(app)/+layout.svelte`.
+- [x] 3.2 Write failing test for a new dashboard `load` (`frontend/src/routes/(app)/dashboard/+page.server.ts`): it counts the user's owned stations (reusing `GET /station/` + `isOwnStation`, as `stations/mine` does). Implement the loader.
+- [x] 3.3 Write failing test: dashboard with **zero** owned stations renders a prominent "set up your first station" CTA linking to `/stations/new`; with **≥1** it does not (scenarios: *a user with no stations sees the setup call to action* / *a user with a station sees the normal dashboard*). Implement in `dashboard/+page.svelte`, replacing the equal-weight three-card layout.
+- [x] 3.4 Write failing test: `/stations/mine` shows a **secondary** "Add station" action linking to `/stations/new`, no primary "New station" button, and its empty state points to `/stations/new` (scenarios: *the station list offers a quiet Add-station action* / *the empty station list points to the setup wizard*). Update `stations/mine/+page.svelte`.
+- [x] 3.5 `npm run lint && npm run check && npm run test` green.
 
 ## 4. Frontend — signup auto-login + handoff (TDD)
 
-- [ ] 4.1 Write failing Vitest for the signup action (`frontend/src/routes/(public)/signup/+page.server.ts`): on a successful signup it performs the password grant, sets the `pp_session` cookie, and redirects into first-station setup (`/stations/new`) (scenario: *a new visitor is signed in and sent to first-station setup*).
-- [ ] 4.2 Write failing Vitest: when the follow-up grant fails (existing email / different password), the action sets no session and falls back to the login form, asserting nothing about existence (scenario: *signup for an existing email falls back to login without enumeration*); keep the authenticated-redirect regression (scenario: *an authenticated user is redirected away from signup*).
-- [ ] 4.3 Implement the signup → `POST /login/access-token` chain using the existing BFF helpers (`SESSION_COOKIE`, `sessionCookieOptions`), then `redirect` to `/stations/new`; keep the anti-enumeration fallback.
-- [ ] 4.4 Write failing test + implement the wizard "do it later" escape → `/dashboard`, creating no station (scenario: *a user defers first-station setup*). Confirm the dashboard hero still shows for the zero-station user afterward.
-- [ ] 4.5 `npm run lint && npm run check && npm run test` green.
+- [x] 4.1 Write failing Vitest for the signup action (`frontend/src/routes/(public)/signup/+page.server.ts`): on a successful signup it performs the password grant, sets the `pp_session` cookie, and redirects into first-station setup (`/stations/new`) (scenario: *a new visitor is signed in and sent to first-station setup*).
+- [x] 4.2 Write failing Vitest: when the follow-up grant fails (existing email / different password), the action sets no session and falls back to the login form, asserting nothing about existence (scenario: *signup for an existing email falls back to login without enumeration*); keep the authenticated-redirect regression (scenario: *an authenticated user is redirected away from signup*).
+- [x] 4.3 Implement the signup → `POST /login/access-token` chain using the existing BFF helpers (`SESSION_COOKIE`, `sessionCookieOptions`), then `redirect` to `/stations/new`; keep the anti-enumeration fallback.
+- [x] 4.4 Write failing test + implement the wizard "do it later" escape → `/dashboard`, creating no station (scenario: *a user defers first-station setup*). Confirm the dashboard hero still shows for the zero-station user afterward.
+- [x] 4.5 `npm run lint && npm run check && npm run test` green.
 
 ## 5. End-to-end (real stack)
 
-- [ ] 5.1 Playwright e2e: signup → auto-login → land on `/stations/new` (first-station setup wizard); assert redirect + session cookie.
-- [ ] 5.2 Playwright e2e: "do it later" from the wizard → dashboard still shows the "set up your first station" hero (zero stations).
-- [ ] 5.3 Playwright e2e: enroll with `is_private` checked → after device confirm, the station appears private in `/stations/mine`.
-- [ ] 5.4 Playwright e2e: `/stations/new` serves the setup wizard (not a device-less form) and `/enroll` redirects to it; `/stations/mine` add-station is a secondary action to `/stations/new`; sidebar has no "Enroll device" item.
+- [x] 5.1 Playwright e2e: signup → auto-login → land on `/stations/new` (first-station setup wizard); assert redirect + session cookie.
+- [x] 5.2 Playwright e2e: "do it later" from the wizard → dashboard still shows the "set up your first station" hero (zero stations).
+- [x] 5.3 Playwright e2e: enroll with `is_private` checked → after device confirm, the station appears private in `/stations/mine`.
+- [x] 5.4 Playwright e2e: `/stations/new` serves the setup wizard (not a device-less form) and `/enroll` redirects to it; `/stations/mine` add-station is a secondary action to `/stations/new`; sidebar has no "Enroll device" item.
 
 ## 6. Verify, review, archive
 

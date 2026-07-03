@@ -11,7 +11,7 @@ test('the enroll wizard presents the pairing QR with a manual fallback and a run
 	await signupUser(request, email, PASSWORD);
 	await uiLogin(page, email, PASSWORD);
 
-	await page.goto('/enroll');
+	await page.goto('/stations/new');
 	await page.getByTestId('latitude-input').fill('51.5074');
 	await page.getByTestId('longitude-input').fill('-0.1278');
 	await page.getByTestId('start-enrollment').click();
@@ -51,7 +51,7 @@ test('the enroll wizard presents the pairing QR with a manual fallback and a run
 
 	// Navigating away and back does NOT re-display the one-time credential.
 	await page.goto('/');
-	await page.goto('/enroll');
+	await page.goto('/stations/new');
 	await expect(page.getByTestId('enroll-token')).toHaveCount(0);
 	await expect(page.getByTestId('enroll-form')).toBeVisible();
 });
@@ -66,7 +66,7 @@ test('the pairing QR and token expire visibly once the countdown reaches zero', 
 
 	// Fake the browser clock so we can jump past the TTL without waiting it out.
 	await page.clock.install();
-	await page.goto('/enroll');
+	await page.goto('/stations/new');
 	await page.getByTestId('latitude-input').fill('10.0000');
 	await page.getByTestId('longitude-input').fill('20.0000');
 	await page.getByTestId('start-enrollment').click();
