@@ -11,12 +11,14 @@
 <section class="space-y-6">
 	<div class="flex items-center justify-between gap-4">
 		<h1 class="text-2xl font-semibold text-foreground">My stations</h1>
+		<!-- Quiet, secondary action: most operators own one station, so adding another
+		     is de-emphasized. Routes to the unified setup wizard (device enrollment). -->
 		<a
 			href="/stations/new"
-			data-testid="new-station"
-			class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+			data-testid="add-station"
+			class="rounded-md border border-input px-4 py-2 text-sm font-medium hover:bg-accent"
 		>
-			New station
+			Add station
 		</a>
 	</div>
 
@@ -25,8 +27,8 @@
 			data-testid="stations-empty"
 			class="rounded-lg border border-dashed border-border p-8 text-center text-muted-foreground"
 		>
-			You don't own any stations yet. Create one, or
-			<a href="/enroll" class="text-primary hover:underline">enroll a device</a>.
+			You don't own any stations yet.
+			<a href="/stations/new" class="text-primary hover:underline">Set up your first station</a>.
 		</p>
 	{:else}
 		<ul data-testid="my-stations" class="grid gap-4 sm:grid-cols-2">

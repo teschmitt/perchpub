@@ -16,9 +16,6 @@
 				data-testid="nav-stations"
 				class="rounded-md px-2 py-1.5 hover:bg-accent">My stations</a
 			>
-			<a href="/enroll" data-testid="nav-enroll" class="rounded-md px-2 py-1.5 hover:bg-accent"
-				>Enroll device</a
-			>
 			<a href="/account" data-testid="nav-account" class="rounded-md px-2 py-1.5 hover:bg-accent"
 				>Account</a
 			>
