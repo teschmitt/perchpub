@@ -138,12 +138,16 @@ def _generate_device_key(key_type: str) -> DeviceKey:
 
 
 def make_leaf(
-    ca: TestCA, common_name: str = "device-001.local", *, key_type: str = "ed25519"
+    ca: TestCA,
+    common_name: str = "device-001.local",
+    *,
+    key_type: str = "ed25519",
+    dns_sans: list[str] | None = None,
 ) -> TestLeaf:
     key = _generate_device_key(key_type)
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
     now = datetime.now(timezone.utc)
-    cert = (
+    builder = (
         x509.CertificateBuilder()
         .subject_name(subject)
         .issuer_name(ca.cert.subject)
@@ -152,8 +156,15 @@ def make_leaf(
         .not_valid_before(now - timedelta(minutes=1))
         .not_valid_after(now + timedelta(days=30))
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
-        .sign(ca.key, hashes.SHA256())
     )
+    # dns_sans lets a test forge a leaf whose CN/SAN *names another tenant's
+    # station* — the multi-tenant spoofing case the SPKI-only guard must ignore.
+    if dns_sans:
+        builder = builder.add_extension(
+            x509.SubjectAlternativeName([x509.DNSName(name) for name in dns_sans]),
+            critical=False,
+        )
+    cert = builder.sign(ca.key, hashes.SHA256())
     return TestLeaf(cert=cert, key=key)
 
 

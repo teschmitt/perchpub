@@ -4,8 +4,8 @@ Implementation is TDD off the `#### Scenario`s in [specs/enrollment-hardening/sp
 
 ## 1. SPKI-only identity guard (D4 — smallest, already true; lock it)
 
-- [ ] 1.1 Failing regression test in `backend/tests/api/routes/test_uploads.py` (reuse `tests/utils/mtls.py`): a valid device-CA leaf whose CN/SAN name another tenant's station resolves **only** by its `SHA-256(SPKI)` — it authenticates as the SPKI-matched station (or `401` if none), and the spoofed CN/SAN has no effect on which station/account the upload touches.
-- [ ] 1.2 Add a short affirming comment in `get_current_station` ([deps.py:103](../../../backend/app/api/deps.py#L103)) that identity is SPKI-only and CN/SAN are never read for authorization. No behavioural change.
+- [x] 1.1 Failing regression test in `backend/tests/api/routes/test_uploads.py` (reuse `tests/utils/mtls.py`): a valid device-CA leaf whose CN/SAN name another tenant's station resolves **only** by its `SHA-256(SPKI)` — it authenticates as the SPKI-matched station (or `401` if none), and the spoofed CN/SAN has no effect on which station/account the upload touches.
+- [x] 1.2 Add a short affirming comment in `get_current_station` ([deps.py:103](../../../backend/app/api/deps.py#L103)) that identity is SPKI-only and CN/SAN are never read for authorization. No behavioural change.
 
 ## 2. Enrollment audit trail (D3)
 

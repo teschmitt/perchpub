@@ -114,6 +114,76 @@ def test_upload_creates_classify_task_bound_to_authenticated_station(
     assert args[1] == task_id
 
 
+def test_upload_leaf_spoofed_san_binds_only_to_spki_station(
+    client: TestClient, db: Session, device_ca: mtls.TestCA
+) -> None:
+    """A leaf whose CN/SAN names another tenant's station still authenticates
+    ONLY as the station matching its SHA-256(SPKI).
+
+    step-ca copies CSR-requested SANs verbatim into the leaf, so any station
+    can obtain a cert bearing an arbitrary SAN — including one naming another
+    tenant's device. This locks in that a SAN never sways which account a
+    request touches; identity is the enrollment-time SPKI pin alone.
+    """
+    # Another tenant's station is present in the DB; the spoofed SAN names it.
+    victim_leaf = mtls.make_leaf(device_ca, "victim-station.example")
+    victim = _persist_station(db, spki_pin=victim_leaf.spki_sha256_hex)
+
+    # Attacker holds its own device key and requests a leaf whose SAN spoofs the
+    # victim's hostname — but the leaf's OWN SPKI is what is pinned.
+    spoof_leaf = mtls.make_leaf(
+        device_ca, "victim-station.example", dns_sans=["victim-station.example"]
+    )
+    attacker_station = _persist_station(db, spki_pin=spoof_leaf.spki_sha256_hex)
+    assert attacker_station.id != victim.id
+
+    fake_write_result = MagicMock()
+    fake_write_result.object_name = "ab/cd/spoof.mp4"
+    fake_garage = MagicMock()
+    fake_garage.put_object.return_value = fake_write_result
+
+    with (
+        patch("app.api.routes.uploads.garage_client", fake_garage),
+        patch("app.tasks.classify_video", MagicMock()),
+    ):
+        r = client.post(
+            f"{settings.API_V1_STR}/upload/",
+            files={"file": ("clip.mp4", b"payload", "video/mp4")},
+            headers=_cert_header(spoof_leaf),
+        )
+
+    assert r.status_code == 200, r.text
+    task = db.get(ClassifyTask, uuid.UUID(r.json()["id"]))
+    assert task is not None
+    # Bound to the SPKI-matched station, never to the SAN-named victim.
+    assert task.upload.station_id == attacker_station.id
+    assert task.upload.station_id != victim.id
+
+
+def test_upload_leaf_spoofed_san_without_spki_match_returns_401(
+    client: TestClient, db: Session, device_ca: mtls.TestCA
+) -> None:
+    """A valid device-CA leaf whose CN/SAN names a real enrolled station but
+    whose OWN SPKI matches no station is refused with the generic 401 — the
+    CN/SAN cannot stand in for a missing SPKI pin.
+    """
+    victim_leaf = mtls.make_leaf(device_ca, "victim-station.example")
+    _persist_station(db, spki_pin=victim_leaf.spki_sha256_hex)
+
+    # Fresh (unenrolled) key, but CN + SAN both name the enrolled victim.
+    orphan_leaf = mtls.make_leaf(
+        device_ca, "victim-station.example", dns_sans=["victim-station.example"]
+    )
+
+    r = client.post(
+        f"{settings.API_V1_STR}/upload/",
+        files={"file": ("clip.mp4", b"hello", "video/mp4")},
+        headers=_cert_header(orphan_leaf),
+    )
+    assert r.status_code == 401
+    assert r.json()["detail"] == "client certificate required"
+
+
 def test_upload_returns_generic_500_on_unexpected_storage_error(
     db: Session, device_ca: mtls.TestCA
 ) -> None:

@@ -160,6 +160,11 @@ def get_current_station(session: SessionDep, request: Request) -> Station:
     except (InvalidSignature, ValueError, TypeError, FileNotFoundError):
         raise _GENERIC_MTLS_401
 
+    # Identity is the SPKI pin ALONE. The leaf's CommonName and SubjectAltNames
+    # are never read for authorization: a station controls those via its CSR and
+    # the step-ca OTT copies CSR-requested SANs verbatim, so trusting them would
+    # let any station spoof another tenant's identity. Resolution is strictly
+    # SHA-256(SPKI) -> Station -> owner_id. (enrollment-hardening, D4.)
     station = session.exec(
         select(Station).where(Station.spki_sha256 == spki_pin)
     ).first()
