@@ -12,16 +12,18 @@ in tests/ca/test_step_ca_client.py.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import uuid
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -33,6 +35,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from app.ca.step_ca_client import SignedCertificate
+from app.core import ratelimit
 from app.core.config import settings
 from app.models import EnrollmentToken, Station, User
 from app.models.enrollment import (
@@ -610,6 +613,224 @@ def test_reenroll_does_not_alter_existing_privacy(
     station = db.get(Station, station_id)
     assert station is not None
     assert station.is_private is True
+
+
+class _FakeRedis:
+    """In-memory fixed-window counter standing in for Redis in rate tests."""
+
+    def __init__(self) -> None:
+        self.counts: dict[str, int] = {}
+
+    def incr(self, key: str) -> int:
+        self.counts[key] = self.counts.get(key, 0) + 1
+        return self.counts[key]
+
+    def expire(self, key: str, ttl: int) -> bool:
+        return True
+
+
+@contextlib.contextmanager
+def _fake_ratelimit_backend() -> Iterator[_FakeRedis]:
+    """Swap the limiter's Redis for a deterministic in-memory counter and pin
+    the clock so every hit lands in one fixed window.
+    """
+    fake = _FakeRedis()
+    with (
+        patch.object(ratelimit, "redis_client", fake),
+        patch.object(ratelimit.time, "time", return_value=1_000_000.0),
+    ):
+        yield fake
+
+
+def test_confirm_beyond_source_rate_returns_429_without_signing(
+    client: TestClient,
+    db: Session,
+    device_ca: _DeviceCA,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Confirms beyond the per-source rate are 429'd before any side effect:
+    no CSR is signed and no Station is created (design D2).
+    """
+    monkeypatch.setattr(settings, "ENROLLMENT_CONFIRM_RATE_PER_MIN", 2)
+    _, headers = _operator(db, client)
+    enrollment = _create_session(client, headers)  # created before the fake backend
+
+    sign_calls: list[str] = []
+
+    async def _tracking_sign(csr: str) -> SignedCertificate:
+        sign_calls.append(csr)
+        return _signed_cert_for(csr, device_ca.intermediate)
+
+    with (
+        _fake_ratelimit_backend(),
+        patch("app.api.routes.enrollment.sign_device_csr", new=_tracking_sign),
+    ):
+        # Exhaust the 2/min budget with confirms to unknown sessions (still
+        # counted — the limiter runs before the handler's 404).
+        for _ in range(2):
+            r = client.post(
+                f"{settings.API_V1_STR}/enrollment/confirm/{uuid.uuid4()}",
+                json={"auth_token": "x", "csr_pem": make_csr()},
+            )
+            assert r.status_code == 404
+        # The 3rd confirm — a valid session that would otherwise sign+create —
+        # is rejected by the rate limit.
+        r = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{enrollment.session_id}",
+            json={"auth_token": enrollment.auth_token, "csr_pem": make_csr()},
+        )
+
+    assert r.status_code == 429
+    assert r.headers.get("retry-after") is not None
+    assert sign_calls == []  # step-ca was never called
+    token = db.get(EnrollmentToken, enrollment.session_id)
+    assert token is not None
+    assert token.claimed is False
+    assert token.station_id is None
+
+
+def test_create_beyond_user_rate_returns_429_without_token(
+    client: TestClient,
+    db: Session,
+    device_ca: _DeviceCA,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """/create beyond the per-user rate is 429'd with no EnrollmentToken."""
+    monkeypatch.setattr(settings, "ENROLLMENT_CREATE_RATE_PER_MIN", 2)
+    operator, headers = _operator(db, client)
+
+    with _fake_ratelimit_backend():
+        for _ in range(2):
+            ok = client.post(
+                f"{settings.API_V1_STR}/enrollment/create",
+                headers=headers,
+                json={"latitude": 47.5, "longitude": 8.7},
+            )
+            assert ok.status_code == 200, ok.text
+        r = client.post(
+            f"{settings.API_V1_STR}/enrollment/create",
+            headers=headers,
+            json={"latitude": 47.5, "longitude": 8.7},
+        )
+
+    assert r.status_code == 429
+    assert r.headers.get("retry-after") is not None
+    tokens = db.exec(
+        select(EnrollmentToken).where(EnrollmentToken.owner_id == operator.id)
+    ).all()
+    assert len(tokens) == 2  # the rejected create persisted nothing
+
+
+def test_create_rate_exempts_superuser(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Superusers are exempt from the create rate limit."""
+    monkeypatch.setattr(settings, "ENROLLMENT_CREATE_RATE_PER_MIN", 1)
+    with _fake_ratelimit_backend():
+        for _ in range(3):
+            r = client.post(
+                f"{settings.API_V1_STR}/enrollment/create",
+                headers=superuser_token_headers,
+                json={"latitude": 47.5, "longitude": 8.7},
+            )
+            assert r.status_code == 200, r.text
+
+
+def test_create_at_station_ceiling_returns_403(
+    client: TestClient,
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-superuser at the owned-station ceiling gets 403, no token (D2)."""
+    monkeypatch.setattr(settings, "MAX_STATIONS_PER_USER", 2)
+    operator, headers = _operator(db, client)
+    for _ in range(2):
+        db.add(Station(latitude=0.0, longitude=0.0, owner_id=operator.id))
+    db.commit()
+
+    r = client.post(
+        f"{settings.API_V1_STR}/enrollment/create",
+        headers=headers,
+        json={"latitude": 47.5, "longitude": 8.7},
+    )
+    assert r.status_code == 403
+    tokens = db.exec(
+        select(EnrollmentToken).where(EnrollmentToken.owner_id == operator.id)
+    ).all()
+    assert tokens == []
+
+
+def test_create_at_active_session_ceiling_returns_403(
+    client: TestClient,
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A user holding the max active (unclaimed, unexpired) sessions gets 403."""
+    monkeypatch.setattr(settings, "MAX_ACTIVE_ENROLLMENT_SESSIONS_PER_USER", 2)
+    operator, headers = _operator(db, client)
+    for _ in range(2):
+        _create_session(client, headers)
+
+    r = client.post(
+        f"{settings.API_V1_STR}/enrollment/create",
+        headers=headers,
+        json={"latitude": 47.5, "longitude": 8.7},
+    )
+    assert r.status_code == 403
+    tokens = db.exec(
+        select(EnrollmentToken).where(EnrollmentToken.owner_id == operator.id)
+    ).all()
+    assert len(tokens) == 2  # only the two under-ceiling sessions persisted
+
+
+def test_create_quota_exempts_superuser(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Superusers are exempt from both quotas (station + active session)."""
+    monkeypatch.setattr(settings, "MAX_STATIONS_PER_USER", 0)
+    monkeypatch.setattr(settings, "MAX_ACTIVE_ENROLLMENT_SESSIONS_PER_USER", 0)
+    r = client.post(
+        f"{settings.API_V1_STR}/enrollment/create",
+        headers=superuser_token_headers,
+        json={"latitude": 47.5, "longitude": 8.7},
+    )
+    assert r.status_code == 200, r.text
+
+
+def test_confirm_rate_fails_open_when_backend_unavailable(
+    client: TestClient,
+    db: Session,
+    device_ca: _DeviceCA,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Redis outage disables the rate limit (fail-open): a valid confirm still
+    succeeds even with the rate configured to reject everything.
+    """
+    monkeypatch.setattr(settings, "ENROLLMENT_CONFIRM_RATE_PER_MIN", 0)
+    _, headers = _operator(db, client)
+    enrollment = _create_session(client, headers)
+
+    broken = MagicMock()
+    broken.incr.side_effect = RedisConnectionError("backend down")
+
+    async def _fake_sign(csr: str) -> SignedCertificate:
+        return _signed_cert_for(csr, device_ca.intermediate)
+
+    with (
+        patch.object(ratelimit, "redis_client", broken),
+        patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign),
+    ):
+        r = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{enrollment.session_id}",
+            json={"auth_token": enrollment.auth_token, "csr_pem": make_csr()},
+        )
+    assert r.status_code == 200, r.text
 
 
 def _audit_rows(

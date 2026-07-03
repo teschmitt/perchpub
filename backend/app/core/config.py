@@ -65,6 +65,14 @@ class Settings(BaseSettings):
     # periodic task purges rows past this window.
     ENROLLMENT_AUDIT_RETENTION_DAYS: int = 180
 
+    # Enrollment rate limits + per-user quotas (design D2). Rates are a
+    # Redis-backed throttle (fail-open); quotas are DB-backed and always
+    # enforced. Superusers are exempt from the create-rate and the quotas.
+    ENROLLMENT_CREATE_RATE_PER_MIN: int = 5
+    ENROLLMENT_CONFIRM_RATE_PER_MIN: int = 10
+    MAX_ACTIVE_ENROLLMENT_SESSIONS_PER_USER: int = 5
+    MAX_STATIONS_PER_USER: int = 25
+
     GARAGE_BUCKET_NAME: str = "perchpub-bucket"
     GARAGE_ENDPOINT: str = ""
     GARAGE_KEY_ID: str = ""

@@ -9,12 +9,16 @@ from pathlib import Path
 import httpx
 from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-from fastapi import APIRouter, HTTPException, Request, status
-from sqlmodel import select
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep, client_source
 from app.ca.step_ca_client import sign_device_csr
 from app.core.config import settings
+from app.core.ratelimit import (
+    enforce_enrollment_confirm_rate,
+    enforce_enrollment_create_rate,
+)
 from app.models.enrollment import (
     EnrollmentAudit,
     EnrollmentAuditEvent,
@@ -88,13 +92,48 @@ def _append_root_to_chain(intermediate_pem: str) -> str:
     return intermediate + "\n" + _device_ca_root_pem().strip() + "\n"
 
 
-@router.post("/create", response_model=EnrollmentSession)
+@router.post(
+    "/create",
+    response_model=EnrollmentSession,
+    dependencies=[Depends(enforce_enrollment_create_rate)],
+)
 def create_enrollment_session(
     session: SessionDep,
     request: Request,
     current_user: CurrentUser,
     create_in: EnrollmentSessionCreate,
 ) -> EnrollmentSession:
+    # DB-backed per-user quotas (design D2), enforced before any write.
+    # Always on (unlike the fail-open rate limit); superusers are exempt.
+    if not current_user.is_superuser:
+        now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+        active_sessions = session.exec(
+            select(func.count())
+            .select_from(EnrollmentToken)
+            .where(
+                EnrollmentToken.owner_id == current_user.id,
+                col(EnrollmentToken.claimed).is_(False),
+                col(EnrollmentToken.expires_at) > now_naive,
+            )
+        ).one()
+        if active_sessions >= settings.MAX_ACTIVE_ENROLLMENT_SESSIONS_PER_USER:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="active enrollment session limit reached",
+            )
+        # Owned stations. The revoked-station filter is added with revocation
+        # (D1) — until then nothing is revoked, so "owned" == "owned, non-revoked".
+        owned_stations = session.exec(
+            select(func.count())
+            .select_from(Station)
+            .where(Station.owner_id == current_user.id)
+        ).one()
+        if owned_stations >= settings.MAX_STATIONS_PER_USER:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="station limit reached",
+            )
+
     session_id = uuid.uuid4()
     auth_token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(
@@ -136,7 +175,11 @@ def create_enrollment_session(
     )
 
 
-@router.post("/confirm/{session_id}", response_model=EnrollmentResponse)
+@router.post(
+    "/confirm/{session_id}",
+    response_model=EnrollmentResponse,
+    dependencies=[Depends(enforce_enrollment_confirm_rate)],
+)
 async def enroll_station(
     session: SessionDep,
     request: Request,

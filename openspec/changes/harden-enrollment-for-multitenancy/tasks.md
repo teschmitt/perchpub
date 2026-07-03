@@ -17,10 +17,10 @@ Implementation is TDD off the `#### Scenario`s in [specs/enrollment-hardening/sp
 
 ## 3. Rate limits + quotas (D2)
 
-- [ ] 3.1 New `backend/app/core/ratelimit.py`: a Redis-backed fixed-window limiter (construct `redis.Redis` from `HUEY_REDIS_HOST`/`HUEY_REDIS_PORT` — no new dependency) exposed as a per-route FastAPI dependency factory; **fail-open** with a logged warning if Redis is unreachable. Add limit/quota settings to `config.py` (`ENROLLMENT_CREATE_RATE_PER_MIN=5`, `ENROLLMENT_CONFIRM_RATE_PER_MIN=10`, `MAX_ACTIVE_ENROLLMENT_SESSIONS_PER_USER=5`, `MAX_STATIONS_PER_USER=25`).
-- [ ] 3.2 Failing tests: `confirm` beyond the per-source rate → `429` + `Retry-After`, and **no** CSR signed / **no** `Station` row (assert `sign_device_csr` not called); `create` beyond the per-user rate → `429`, no `EnrollmentToken`. (Fake the Redis clock/window; superuser exempt from create-rate.)
-- [ ] 3.3 Failing tests: a non-superuser at the owned-station ceiling → `create` returns `403`, no `EnrollmentToken`; a user at the active-session ceiling (unclaimed, unexpired) → `create` returns `403`. Superuser is exempt.
-- [ ] 3.4 Wire the limiter dependency onto `/create` (per user) and `/confirm` (per source) and add the two DB-backed quota checks at the top of `create_enrollment_session`, before any write.
+- [x] 3.1 New `backend/app/core/ratelimit.py`: a Redis-backed fixed-window limiter (construct `redis.Redis` from `HUEY_REDIS_HOST`/`HUEY_REDIS_PORT` — no new dependency) exposed as a per-route FastAPI dependency factory; **fail-open** with a logged warning if Redis is unreachable. Add limit/quota settings to `config.py` (`ENROLLMENT_CREATE_RATE_PER_MIN=5`, `ENROLLMENT_CONFIRM_RATE_PER_MIN=10`, `MAX_ACTIVE_ENROLLMENT_SESSIONS_PER_USER=5`, `MAX_STATIONS_PER_USER=25`).
+- [x] 3.2 Failing tests: `confirm` beyond the per-source rate → `429` + `Retry-After`, and **no** CSR signed / **no** `Station` row (assert `sign_device_csr` not called); `create` beyond the per-user rate → `429`, no `EnrollmentToken`. (Fake the Redis clock/window; superuser exempt from create-rate.)
+- [x] 3.3 Failing tests: a non-superuser at the owned-station ceiling → `create` returns `403`, no `EnrollmentToken`; a user at the active-session ceiling (unclaimed, unexpired) → `create` returns `403`. Superuser is exempt.
+- [x] 3.4 Wire the limiter dependency onto `/create` (per user) and `/confirm` (per source) and add the two DB-backed quota checks at the top of `create_enrollment_session`, before any write.
 
 ## 4. Application-layer station revocation (D1)
 
