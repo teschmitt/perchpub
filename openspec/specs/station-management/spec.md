@@ -31,22 +31,6 @@ The station detail page (`/stations/{id}`) SHALL be server-rendered from `GET /s
 - **WHEN** a client requests `/stations/{id}` for a station the backend returns `404` for (nonexistent, or a private station the caller may not see)
 - **THEN** the page renders a not-found (404) response rather than disclosing the station's existence
 
-### Requirement: Owner creates a station
-
-A logged-in user SHALL be able to create a station from the authenticated zone by submitting `latitude`, `longitude`, and an `is_private` flag, persisted via the backend `POST /station/` through the generated typed client in a server-side form action. The new station's owner SHALL be the creating user (set server-side from the bearer; the browser never supplies `owner_id`). A station-coordinate map picker is out of scope; coordinates are entered as numeric `latitude`/`longitude` values bounded by `-90..90` and `-180..180`. The create page SHALL be reachable only inside the `(app)` zone, behind the P0 server-side auth guard.
-
-#### Scenario: a logged-in user creates a station
-- **WHEN** a logged-in user submits the create-station form with a valid latitude, longitude, and `is_private` value
-- **THEN** the server-side form action calls `POST /station/`, the created station is owned by that user, and the user is returned to their station list where the new station appears
-
-#### Scenario: invalid coordinates are rejected with a field error
-- **WHEN** a user submits the create-station form with a latitude or longitude outside the allowed range
-- **THEN** the form action returns a typed validation error and the form re-renders with the submitted values rather than navigating away
-
-#### Scenario: the create page requires authentication
-- **WHEN** an unauthenticated client requests the create-station page in the `(app)` zone
-- **THEN** P0's `(app)` guard redirects the request to the login route before the page renders
-
 ### Requirement: Owner edits their own station
 
 The owner of a station (and a superuser) SHALL be able to edit that station's `latitude`, `longitude`, and `is_private` flag from the authenticated zone via the backend `PUT /station/{id}` through the generated typed client in a server-side form action. Because `StationUpdate` extends `StationBase` with no field overrides — its "all fields optional" docstring is inaccurate; `latitude` and `longitude` are required — the edit form SHALL be pre-filled from the loaded station (`StationPublic` exposes `latitude`, `longitude`, `is_private`) and SHALL resubmit the **complete** `{latitude, longitude, is_private}` body on save, not a partial patch. A user who is neither the owner nor a superuser SHALL NOT be able to edit the station: the UI SHALL reflect the backend's `403` (a public station they do not own) and `404` (a private station they do not own, or an unknown id) without exposing private details. The `is_private` toggle SHALL be editable through this form.
@@ -62,4 +46,28 @@ The owner of a station (and a superuser) SHALL be able to edit that station's `l
 #### Scenario: a non-owner cannot discover a foreign private station
 - **WHEN** a logged-in user requests the edit page for a private station they do not own
 - **THEN** the backend responds `404` and the UI shows a not-found state, leaking no detail about the private station
+
+### Requirement: Adding a station is a secondary action routed to the setup wizard
+
+The authenticated station list (`/stations/mine`) SHALL present the station-creation entry point as a **quiet, secondary** action ("Add station") that routes to the enrollment setup wizard at `/stations/new` (see `station-enrollment`). It SHALL NOT be a primary-styled create button and SHALL NOT be a device-less create form. The list's empty state SHALL direct a user who owns no stations to the setup wizard to set up their first station. Adding a subsequent station SHALL remain possible from this list but SHALL NOT be given primary visual prominence.
+
+#### Scenario: the station list offers a quiet Add-station action
+
+- **WHEN** a logged-in owner who already owns at least one station views `/stations/mine`
+- **THEN** the page shows a secondary "Add station" action that links to the enrollment setup wizard, and shows no device-less create form and no primary-styled "New station" button
+
+#### Scenario: the empty station list points to the setup wizard
+
+- **WHEN** a logged-in owner who owns zero stations views `/stations/mine`
+- **THEN** the empty state directs them to the enrollment setup wizard to set up their first station
+
+#### Scenario: `/stations/new` serves the setup wizard, not a device-less form
+
+- **WHEN** a client requests `/stations/new`
+- **THEN** it serves the enrollment setup wizard, no device-less create form is served there, and there is no user-facing path that persists a station with a null `spki_sha256`
+
+#### Scenario: the legacy enroll route redirects to the setup wizard
+
+- **WHEN** a client requests the legacy `/enroll` route
+- **THEN** it redirects to `/stations/new`
 
