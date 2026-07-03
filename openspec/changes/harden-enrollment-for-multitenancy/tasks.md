@@ -24,11 +24,11 @@ Implementation is TDD off the `#### Scenario`s in [specs/enrollment-hardening/sp
 
 ## 4. Application-layer station revocation (D1)
 
-- [ ] 4.1 Add `Station.revoked_at: datetime | None = None` to `backend/app/models/station.py`; expose it on `StationPublic`. Alembic migration (`-m "station revoked_at"`) + `upgrade head`.
-- [ ] 4.2 Failing test in `test_uploads.py`: a revoked station's leaf → `get_current_station` yields the generic `401` (no upload stored); and in `test_stations.py`: a revoked station is absent from `GET /station/` for its owner.
-- [ ] 4.3 Enforce revocation in `get_current_station` ([deps.py](../../../backend/app/api/deps.py)) — after the SPKI match, `revoked_at is not None` → the generic mTLS `401`; filter `revoked_at IS NOT NULL` out of `read_stations`'s active list ([stations.py:38](../../../backend/app/api/routes/stations.py#L38)).
-- [ ] 4.4 Add `POST /station/{id}/revoke` in `stations.py`: owner-or-superuser (non-owner → `403` public / `404` private, mirroring `update_station`); set `revoked_at`, write a `station_revoked` audit row. In `enroll_station`, refuse to reuse a station whose `revoked_at is not None` (recovery = fresh key → new SPKI).
-- [ ] 4.5 Failing tests in `test_stations.py`: owner and superuser can revoke; non-owner gets `403`/`404`; and in `test_enrollment.py`: re-`confirm` with the revoked pin's key does not reactivate (station stays revoked, leaf still `401`s).
+- [x] 4.1 Add `Station.revoked_at: datetime | None = None` to `backend/app/models/station.py`; expose it on `StationPublic`. Alembic migration (`-m "station revoked_at"`) + `upgrade head`.
+- [x] 4.2 Failing test in `test_uploads.py`: a revoked station's leaf → `get_current_station` yields the generic `401` (no upload stored); and in `test_stations.py`: a revoked station is absent from `GET /station/` for its owner.
+- [x] 4.3 Enforce revocation in `get_current_station` ([deps.py](../../../backend/app/api/deps.py)) — after the SPKI match, `revoked_at is not None` → the generic mTLS `401`; filter `revoked_at IS NOT NULL` out of `read_stations`'s active list ([stations.py:38](../../../backend/app/api/routes/stations.py#L38)).
+- [x] 4.4 Add `POST /station/{id}/revoke` in `stations.py`: owner-or-superuser (non-owner → `403` public / `404` private, mirroring `update_station`); set `revoked_at`, write a `station_revoked` audit row. In `enroll_station`, refuse to reuse a station whose `revoked_at is not None` (recovery = fresh key → new SPKI).
+- [x] 4.5 Failing tests in `test_stations.py`: owner and superuser can revoke; non-owner gets `403`/`404`; and in `test_enrollment.py`: re-`confirm` with the revoked pin's key does not reactivate (station stays revoked, leaf still `401`s).
 
 ## 5. Verify and gate
 

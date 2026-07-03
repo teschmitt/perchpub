@@ -930,6 +930,57 @@ def test_confirm_audit_source_prefers_forwarded_for_and_records_user_agent(
     assert rows[0].user_agent == "perchpub-station/1.2"
 
 
+def test_reenroll_revoked_pin_does_not_reactivate(
+    client: TestClient, db: Session, device_ca: _DeviceCA
+) -> None:
+    """Re-confirming with a revoked station's key (same SPKI) is refused and the
+    station stays revoked — recovery requires a fresh device key (D1).
+    """
+    operator, headers = _operator(db, client)
+    device_key = ec.generate_private_key(ec.SECP256R1())
+
+    async def _fake_sign(csr: str) -> SignedCertificate:
+        return _signed_cert_for(csr, device_ca.intermediate)
+
+    first = _create_session(client, headers)
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r1 = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{first.session_id}",
+            json={
+                "auth_token": first.auth_token,
+                "csr_pem": _csr_with_key(device_key),
+            },
+        )
+    assert r1.status_code == 200, r1.text
+    station_id = uuid.UUID(r1.json()["station_id"])
+
+    station = db.get(Station, station_id)
+    assert station is not None
+    station.revoked_at = datetime.now(timezone.utc)
+    db.add(station)
+    db.commit()
+
+    # Re-enroll the SAME device key through a fresh session.
+    second = _create_session(client, headers)
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r2 = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{second.session_id}",
+            json={
+                "auth_token": second.auth_token,
+                "csr_pem": _csr_with_key(device_key),
+            },
+        )
+
+    assert r2.status_code == 409, r2.text
+    db.expire_all()
+    station = db.get(Station, station_id)
+    assert station is not None
+    assert station.revoked_at is not None  # still revoked, not reactivated
+    token = db.get(EnrollmentToken, second.session_id)
+    assert token is not None
+    assert token.claimed is False
+
+
 def test_confirm_missing_root_leaves_session_unclaimed(
     client: TestClient,
     db: Session,

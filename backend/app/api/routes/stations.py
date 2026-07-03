@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import col, func, or_, select
 
@@ -8,7 +9,9 @@ from app.api.deps import (
     CurrentUser,
     OptionalCurrentUser,
     SessionDep,
+    client_source,
 )
+from app.models.enrollment import EnrollmentAudit, EnrollmentAuditEvent
 from app.models.station import (
     Station,
     StationCreate,
@@ -47,8 +50,11 @@ def read_stations(
     """
     visibility = _visibility_filter(current_user)
 
-    count_statement = select(func.count()).select_from(Station)
-    statement = select(Station)
+    # A revoked station drops out of the active list for everyone, owner and
+    # superuser included (D1) — it is not an active station.
+    active = col(Station.revoked_at).is_(None)
+    count_statement = select(func.count()).select_from(Station).where(active)
+    statement = select(Station).where(active)
     if visibility is not None:
         count_statement = count_statement.where(visibility)
         statement = statement.where(visibility)
@@ -120,4 +126,45 @@ def update_station(
     session.add(station)
     session.commit()
     session.refresh(station)
+    return station
+
+
+@router.post("/{id}/revoke", response_model=StationPublic)
+def revoke_station(
+    *,
+    session: SessionDep,
+    request: Request,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+) -> Station:
+    """Revoke a station so its certificate no longer authenticates mTLS uploads.
+
+    Owner-or-superuser; a non-owner gets 403 on a public station and 404 on a
+    private one, mirroring `update_station`'s existence-leak avoidance.
+    Non-destructive — observations and uploads are retained — and idempotent:
+    re-revoking keeps the original `revoked_at` and writes no second audit row.
+    Recovery is re-enrolling a fresh device key (a new SPKI), not un-revoking.
+    """
+    station = session.get(Station, id)
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    if station.owner_id != current_user.id and not current_user.is_superuser:
+        if station.is_private:
+            raise HTTPException(status_code=404, detail="Station not found")
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+    if station.revoked_at is None:
+        station.revoked_at = datetime.now(timezone.utc)
+        session.add(station)
+        session.add(
+            EnrollmentAudit(
+                event=EnrollmentAuditEvent.station_revoked,
+                actor_user_id=current_user.id,
+                station_id=station.id,
+                spki_sha256=station.spki_sha256,
+                source=client_source(request),
+                user_agent=request.headers.get("user-agent"),
+            )
+        )
+        session.commit()
+        session.refresh(station)
     return station

@@ -186,6 +186,12 @@ def get_current_station(session: SessionDep, request: Request) -> Station:
     ).first()
     if station is None:
         raise _GENERIC_MTLS_401
+    if station.revoked_at is not None:
+        # A revoked station's leaf no longer authenticates (D1): the same generic
+        # 401 as an unknown pin, so no upload is stored and nothing is attributed
+        # to it. The revoked leaf may still complete a TLS handshake until it
+        # expires (a rate-limiting/DoS concern, not an integrity one).
+        raise _GENERIC_MTLS_401
     return station
 
 

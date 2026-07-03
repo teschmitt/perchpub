@@ -1,11 +1,14 @@
+from datetime import datetime, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.core.security import get_password_hash
 from app.models import Station, User
+from app.models.enrollment import EnrollmentAudit, EnrollmentAuditEvent
 from tests.utils.user import user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string
 
@@ -202,6 +205,115 @@ def test_station_spki_sha256_is_unique(db: Session) -> None:
     with pytest.raises(IntegrityError):
         db.commit()
     db.rollback()
+
+
+def test_read_stations_owner_excludes_revoked(
+    client: TestClient, db: Session
+) -> None:
+    """A revoked station drops out of its owner's active station list (D1)."""
+    password = random_lower_string()
+    owner = _seed_user(db, password=password)
+    live = _seed_station(db, owner=owner, is_private=False)
+    revoked = _seed_station(db, owner=owner, is_private=False)
+    revoked.revoked_at = datetime.now(timezone.utc)
+    db.add(revoked)
+    db.commit()
+
+    headers = user_authentication_headers(
+        client=client, email=owner.email, password=password
+    )
+    r = client.get(f"{settings.API_V1_STR}/station/", headers=headers)
+    assert r.status_code == 200
+    ids = {item["id"] for item in r.json()["data"]}
+    assert str(live.id) in ids
+    assert str(revoked.id) not in ids
+
+
+def test_revoke_station_owner_succeeds(client: TestClient, db: Session) -> None:
+    """An owner can revoke their own station; a station_revoked audit row is
+    written attributing the revocation to the actor.
+    """
+    password = random_lower_string()
+    owner = _seed_user(db, password=password)
+    station = _seed_station(db, owner=owner, is_private=False)
+
+    headers = user_authentication_headers(
+        client=client, email=owner.email, password=password
+    )
+    r = client.post(
+        f"{settings.API_V1_STR}/station/{station.id}/revoke", headers=headers
+    )
+    assert r.status_code == 200, r.text
+    db.refresh(station)
+    assert station.revoked_at is not None
+    assert r.json()["revoked_at"] is not None
+
+    rows = db.exec(
+        select(EnrollmentAudit).where(
+            EnrollmentAudit.station_id == station.id,
+            EnrollmentAudit.event == EnrollmentAuditEvent.station_revoked,
+        )
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].actor_user_id == owner.id
+
+
+def test_revoke_station_superuser_succeeds(
+    client: TestClient, db: Session, superuser_token_headers: dict[str, str]
+) -> None:
+    """A superuser can revoke any station."""
+    station = _seed_station(db, is_private=True)
+    r = client.post(
+        f"{settings.API_V1_STR}/station/{station.id}/revoke",
+        headers=superuser_token_headers,
+    )
+    assert r.status_code == 200, r.text
+    db.refresh(station)
+    assert station.revoked_at is not None
+
+
+def test_revoke_station_other_user_public_returns_403(
+    client: TestClient, db: Session
+) -> None:
+    """A non-owner revoking a public station gets 403 and it stays unrevoked."""
+    station = _seed_station(db, is_private=False)
+    other_password = random_lower_string()
+    other = _seed_user(db, password=other_password)
+    headers = user_authentication_headers(
+        client=client, email=other.email, password=other_password
+    )
+    r = client.post(
+        f"{settings.API_V1_STR}/station/{station.id}/revoke", headers=headers
+    )
+    assert r.status_code == 403
+    db.refresh(station)
+    assert station.revoked_at is None
+
+
+def test_revoke_station_other_user_private_returns_404(
+    client: TestClient, db: Session
+) -> None:
+    """A non-owner revoking a private station gets 404 (existence-leak avoidance)."""
+    station = _seed_station(db, is_private=True)
+    other_password = random_lower_string()
+    other = _seed_user(db, password=other_password)
+    headers = user_authentication_headers(
+        client=client, email=other.email, password=other_password
+    )
+    r = client.post(
+        f"{settings.API_V1_STR}/station/{station.id}/revoke", headers=headers
+    )
+    assert r.status_code == 404
+    db.refresh(station)
+    assert station.revoked_at is None
+
+
+def test_revoke_station_unauthenticated_returns_401(
+    client: TestClient, db: Session
+) -> None:
+    station = _seed_station(db)
+    r = client.post(f"{settings.API_V1_STR}/station/{station.id}/revoke")
+    assert r.status_code == 401
 
 
 def test_read_stations_owner_sees_own_and_public(

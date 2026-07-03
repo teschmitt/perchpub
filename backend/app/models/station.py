@@ -1,6 +1,7 @@
 """Station Pydantic schemas."""
 
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlmodel import Field, Relationship, SQLModel
@@ -35,6 +36,11 @@ class Station(PerchPubBase, StationBase, table=True):
         foreign_key="user.id", nullable=False, ondelete="CASCADE"
     )
     spki_sha256: str | None = Field(default=None, unique=True, index=True)
+    # Set when an owner/superuser revokes the station (D1). A revoked station's
+    # leaf no longer authenticates in get_current_station and the station drops
+    # from the active list; revocation is non-destructive (uploads/observations
+    # are retained). Recovery is a fresh device key -> new SPKI -> new Station.
+    revoked_at: datetime | None = Field(default=None)
     owner: User | None = Relationship(back_populates="stations")
     uploads: list["Upload"] = Relationship(
         back_populates="station", cascade_delete=True
@@ -62,6 +68,7 @@ class StationPublic(StationBase):
 
     id: uuid.UUID
     owner: StationOwnerPublic | None
+    revoked_at: datetime | None = None
 
 
 class StationsPublic(SQLModel):

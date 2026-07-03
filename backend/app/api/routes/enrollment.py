@@ -121,12 +121,14 @@ def create_enrollment_session(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="active enrollment session limit reached",
             )
-        # Owned stations. The revoked-station filter is added with revocation
-        # (D1) — until then nothing is revoked, so "owned" == "owned, non-revoked".
+        # Owned, non-revoked stations — a revoked station frees a quota slot (D1).
         owned_stations = session.exec(
             select(func.count())
             .select_from(Station)
-            .where(Station.owner_id == current_user.id)
+            .where(
+                Station.owner_id == current_user.id,
+                col(Station.revoked_at).is_(None),
+            )
         ).one()
         if owned_stations >= settings.MAX_STATIONS_PER_USER:
             raise HTTPException(
@@ -260,9 +262,17 @@ async def enroll_station(
         select(Station).where(Station.spki_sha256 == spki_pin)
     ).first()
     if existing is not None:
+        # A revoked pin is not reusable (D1): re-enrolling the revoked key does
+        # not reactivate the station. Recovery is a fresh device key -> new SPKI
+        # -> new Station. Refuse regardless of owner.
+        if existing.revoked_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="device certificate has been revoked",
+            )
         # Refuse to silently move a device between accounts. Re-enrollment
-        # refreshes the cert for the *same* owner; cross-owner transfer (and
-        # revocation) is the domain of the enrollment-hardening change.
+        # refreshes the cert for the *same* owner; cross-owner transfer is not
+        # a silent side effect of re-enrolling.
         if existing.owner_id != enrollment_session.owner_id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

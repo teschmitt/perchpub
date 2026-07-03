@@ -2,6 +2,7 @@ import io
 import urllib.parse
 import uuid
 from collections.abc import Generator
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -182,6 +183,34 @@ def test_upload_leaf_spoofed_san_without_spki_match_returns_401(
     )
     assert r.status_code == 401
     assert r.json()["detail"] == "client certificate required"
+
+
+def test_upload_revoked_station_leaf_returns_401(
+    client: TestClient, db: Session, device_ca: mtls.TestCA
+) -> None:
+    """A revoked station's previously-valid leaf no longer authenticates: the
+    resolver refuses it with the generic 401 and no upload is stored (D1).
+    """
+    leaf = mtls.make_leaf(device_ca, "revoked-device.local")
+    station = _persist_station(db, spki_pin=leaf.spki_sha256_hex)
+    station.revoked_at = datetime.now(timezone.utc)
+    db.add(station)
+    db.commit()
+
+    fake_garage = MagicMock()
+    with (
+        patch("app.api.routes.uploads.garage_client", fake_garage),
+        patch("app.tasks.classify_video", MagicMock()),
+    ):
+        r = client.post(
+            f"{settings.API_V1_STR}/upload/",
+            files={"file": ("clip.mp4", b"payload", "video/mp4")},
+            headers=_cert_header(leaf),
+        )
+
+    assert r.status_code == 401
+    assert r.json()["detail"] == "client certificate required"
+    fake_garage.put_object.assert_not_called()
 
 
 def test_upload_returns_generic_500_on_unexpected_storage_error(
