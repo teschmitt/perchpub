@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     # cross-tenant risk on a public service). Raise via env for a fumbly demo.
     ENROLLMENT_TTL_SECONDS: int = 60
 
+    # Enrollment audit trail (design D3). Rows carry a full source IP for
+    # incident reconstruction; retention bounds the PII exposure. A nightly
+    # periodic task purges rows past this window.
+    ENROLLMENT_AUDIT_RETENTION_DAYS: int = 180
+
     GARAGE_BUCKET_NAME: str = "perchpub-bucket"
     GARAGE_ENDPOINT: str = ""
     GARAGE_KEY_ID: str = ""

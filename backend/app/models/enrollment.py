@@ -1,5 +1,6 @@
+import enum
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlmodel import Field, SQLModel
 
@@ -55,3 +56,41 @@ class EnrollmentResponse(SQLModel):
     certificate_pem: str | None = None
     ca_chain_pem: str | None = None
     station_id: uuid.UUID | None = None
+
+
+class EnrollmentAuditEvent(str, enum.Enum):
+    """The enrollment lifecycle events worth attributing (design D3)."""
+
+    session_created = "session_created"
+    confirm_succeeded = "confirm_succeeded"
+    station_revoked = "station_revoked"
+
+
+class EnrollmentAudit(SQLModel, table=True):
+    """Append-only audit trail for enrollment lifecycle events (design D3).
+
+    A queryable table (not logs — no log aggregation is deployed and a rogue
+    enrollment must be attributable by query). Deliberately FK-free: an audit
+    row must survive deletion of the user/station/session it references, so a
+    leaked-token incident stays reconstructable after the fact. Retention is
+    bounded by a periodic purge (``ENROLLMENT_AUDIT_RETENTION_DAYS``). Failed
+    confirms are not recorded per-attempt (the ≤3 cap + rate limits bound them
+    and they would dominate the table); the lifecycle events carry attribution.
+    """
+
+    __tablename__ = "enrollment_audit"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    event: EnrollmentAuditEvent = Field(nullable=False)
+    session_id: uuid.UUID | None = Field(default=None)
+    # The session owner for confirm, the revoker for revoke.
+    actor_user_id: uuid.UUID | None = Field(default=None)
+    source: str | None = Field(default=None)
+    user_agent: str | None = Field(default=None)
+    spki_sha256: str | None = Field(default=None)
+    station_id: uuid.UUID | None = Field(default=None)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )

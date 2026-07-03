@@ -35,7 +35,11 @@ from sqlmodel import Session, select
 from app.ca.step_ca_client import SignedCertificate
 from app.core.config import settings
 from app.models import EnrollmentToken, Station, User
-from app.models.enrollment import EnrollmentSession
+from app.models.enrollment import (
+    EnrollmentAudit,
+    EnrollmentAuditEvent,
+    EnrollmentSession,
+)
 from tests.utils.mtls import TestCA, make_ca, make_csr, make_intermediate
 from tests.utils.user import authentication_token_from_email
 from tests.utils.utils import random_email, random_lower_string
@@ -606,6 +610,103 @@ def test_reenroll_does_not_alter_existing_privacy(
     station = db.get(Station, station_id)
     assert station is not None
     assert station.is_private is True
+
+
+def _audit_rows(
+    db: Session, session_id: uuid.UUID, event: EnrollmentAuditEvent
+) -> list[EnrollmentAudit]:
+    return db.exec(
+        select(EnrollmentAudit).where(
+            EnrollmentAudit.session_id == session_id,
+            EnrollmentAudit.event == event,
+        )
+    ).all()
+
+
+def test_create_writes_session_created_audit(
+    client: TestClient, db: Session, device_ca: _DeviceCA
+) -> None:
+    """/create records a session_created audit row with actor + source."""
+    operator, headers = _operator(db, client)
+    before = datetime.now(timezone.utc)
+    enrollment = _create_session(client, headers)
+
+    rows = _audit_rows(
+        db, enrollment.session_id, EnrollmentAuditEvent.session_created
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.actor_user_id == operator.id
+    assert row.source  # the request source (TestClient host) is recorded
+    assert row.station_id is None
+    assert row.spki_sha256 is None
+    assert row.created_at >= before.replace(tzinfo=None) - timedelta(seconds=5)
+
+
+def test_confirm_writes_confirm_succeeded_audit(
+    client: TestClient, db: Session, device_ca: _DeviceCA
+) -> None:
+    """A completed confirm writes exactly one confirm_succeeded row linking the
+    resulting station (spki + id) to the session, its owner, source, and time.
+    """
+    operator, headers = _operator(db, client)
+    enrollment = _create_session(client, headers)
+
+    async def _fake_sign(csr: str) -> SignedCertificate:
+        return _signed_cert_for(csr, device_ca.intermediate)
+
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{enrollment.session_id}",
+            json={"auth_token": enrollment.auth_token, "csr_pem": make_csr()},
+        )
+    assert r.status_code == 200, r.text
+    station_id = uuid.UUID(r.json()["station_id"])
+    station = db.get(Station, station_id)
+    assert station is not None
+
+    rows = _audit_rows(
+        db, enrollment.session_id, EnrollmentAuditEvent.confirm_succeeded
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.station_id == station_id
+    assert row.spki_sha256 == station.spki_sha256
+    assert row.actor_user_id == operator.id
+    assert row.session_id == enrollment.session_id
+    assert row.source
+
+
+def test_confirm_audit_source_prefers_forwarded_for_and_records_user_agent(
+    client: TestClient, db: Session, device_ca: _DeviceCA
+) -> None:
+    """The confirm audit's source is the leftmost X-Forwarded-For hop (the
+    original client), falling back to request.client.host, and the station's
+    user-agent is captured.
+    """
+    _, headers = _operator(db, client)
+    enrollment = _create_session(client, headers)
+
+    async def _fake_sign(csr: str) -> SignedCertificate:
+        return _signed_cert_for(csr, device_ca.intermediate)
+
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign):
+        r = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{enrollment.session_id}",
+            json={"auth_token": enrollment.auth_token, "csr_pem": make_csr()},
+            headers={
+                "X-Forwarded-For": "203.0.113.7, 10.0.0.1",
+                "User-Agent": "perchpub-station/1.2",
+            },
+        )
+    assert r.status_code == 200, r.text
+
+    rows = _audit_rows(
+        db, enrollment.session_id, EnrollmentAuditEvent.confirm_succeeded
+    )
+    assert len(rows) == 1
+    assert rows[0].source == "203.0.113.7"
+    assert rows[0].user_agent == "perchpub-station/1.2"
 
 
 def test_confirm_missing_root_leaves_session_unclaimed(

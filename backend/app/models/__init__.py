@@ -1,7 +1,7 @@
 from sqlmodel import SQLModel  # noqa: F401
 
 from app.models.classify_task import ClassifyTask
-from app.models.enrollment import EnrollmentToken
+from app.models.enrollment import EnrollmentAudit, EnrollmentToken
 from app.models.message import Message
 from app.models.observation import Observation
 from app.models.password import NewPassword, UpdatePassword
@@ -21,6 +21,7 @@ from app.models.user import (
 
 __all__ = [
     "ClassifyTask",
+    "EnrollmentAudit",
     "EnrollmentToken",
     "Message",
     "NewPassword",

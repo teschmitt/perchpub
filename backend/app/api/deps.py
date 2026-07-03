@@ -88,6 +88,22 @@ def get_current_active_superuser(current_user: CurrentUser) -> User:
     return current_user
 
 
+def client_source(request: Request) -> str | None:
+    """Best-effort origin identifier for audit trails and per-source throttling.
+
+    Prefer the leftmost ``X-Forwarded-For`` hop (the original client, populated
+    by the Traefik mTLS entrypoint), falling back to the socket peer. Only
+    trustworthy behind that entrypoint — the same entrypoint-isolation trust
+    boundary as the mTLS client-cert header (see ``get_current_station``).
+    """
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        first = forwarded.split(",")[0].strip()
+        if first:
+            return first
+    return request.client.host if request.client else None
+
+
 @functools.lru_cache(maxsize=1)
 def _load_device_ca() -> x509.Certificate:
     pem_bytes = Path(settings.DEVICE_CLIENT_CA_CERT_PATH).read_bytes()

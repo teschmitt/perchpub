@@ -9,13 +9,15 @@ from pathlib import Path
 import httpx
 from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from sqlmodel import select
 
-from app.api.deps import CurrentUser, SessionDep
+from app.api.deps import CurrentUser, SessionDep, client_source
 from app.ca.step_ca_client import sign_device_csr
 from app.core.config import settings
 from app.models.enrollment import (
+    EnrollmentAudit,
+    EnrollmentAuditEvent,
     EnrollmentRequest,
     EnrollmentResponse,
     EnrollmentSession,
@@ -89,6 +91,7 @@ def _append_root_to_chain(intermediate_pem: str) -> str:
 @router.post("/create", response_model=EnrollmentSession)
 def create_enrollment_session(
     session: SessionDep,
+    request: Request,
     current_user: CurrentUser,
     create_in: EnrollmentSessionCreate,
 ) -> EnrollmentSession:
@@ -114,6 +117,15 @@ def create_enrollment_session(
     )
 
     session.add(enrollment_token)
+    session.add(
+        EnrollmentAudit(
+            event=EnrollmentAuditEvent.session_created,
+            session_id=session_id,
+            actor_user_id=current_user.id,
+            source=client_source(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+    )
     session.commit()
 
     return EnrollmentSession(
@@ -126,7 +138,10 @@ def create_enrollment_session(
 
 @router.post("/confirm/{session_id}", response_model=EnrollmentResponse)
 async def enroll_station(
-    session: SessionDep, session_id: uuid.UUID, enrollment_req: EnrollmentRequest
+    session: SessionDep,
+    request: Request,
+    session_id: uuid.UUID,
+    enrollment_req: EnrollmentRequest,
 ) -> EnrollmentResponse:
     enrollment_session = session.get(EnrollmentToken, session_id)
     if enrollment_session is None:
@@ -233,6 +248,17 @@ async def enroll_station(
     enrollment_session.claimed = True
     enrollment_session.station_id = station.id
     session.add(enrollment_session)
+    session.add(
+        EnrollmentAudit(
+            event=EnrollmentAuditEvent.confirm_succeeded,
+            session_id=session_id,
+            actor_user_id=enrollment_session.owner_id,
+            source=client_source(request),
+            user_agent=request.headers.get("user-agent"),
+            spki_sha256=station.spki_sha256,
+            station_id=station.id,
+        )
+    )
     session.commit()
     session.refresh(station)
 

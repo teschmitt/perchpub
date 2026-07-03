@@ -9,11 +9,11 @@ Implementation is TDD off the `#### Scenario`s in [specs/enrollment-hardening/sp
 
 ## 2. Enrollment audit trail (D3)
 
-- [ ] 2.1 Add `EnrollmentAudit` table to `backend/app/models/enrollment.py` (fields per D3: `id`, `event`, `session_id`, `actor_user_id`, `source`, `user_agent`, `spki_sha256`, `station_id`, indexed `created_at`); register it in `backend/app/models/__init__.py`.
-- [ ] 2.2 Alembic migration: `alembic revision --autogenerate -m "enrollment audit table"` then `alembic upgrade head`.
-- [ ] 2.3 Failing test in `backend/tests/api/routes/test_enrollment.py`: a completed `confirm` writes exactly one `confirm_succeeded` row linking `spki_sha256` + `station_id` ↔ `session_id` ↔ owner ↔ source ↔ timestamp; `create` writes a `session_created` row with actor + source.
-- [ ] 2.4 Write audit rows in `create_enrollment_session` and `enroll_station` ([enrollment.py](../../../backend/app/api/routes/enrollment.py)); thread the source (`X-Forwarded-For` leftmost, fallback `request.client.host`) and user-agent into `confirm` (add `request: Request`).
-- [ ] 2.5 Add `ENROLLMENT_AUDIT_RETENTION_DAYS` (default `180`) to `config.py`; add a `@huey_client.periodic_task` nightly purge in `backend/app/tasks.py`; test that rows past the window are deleted and rows within it are retained.
+- [x] 2.1 Add `EnrollmentAudit` table to `backend/app/models/enrollment.py` (fields per D3: `id`, `event`, `session_id`, `actor_user_id`, `source`, `user_agent`, `spki_sha256`, `station_id`, indexed `created_at`); register it in `backend/app/models/__init__.py`.
+- [x] 2.2 Alembic migration: `alembic revision --autogenerate -m "enrollment audit table"` then `alembic upgrade head`.
+- [x] 2.3 Failing test in `backend/tests/api/routes/test_enrollment.py`: a completed `confirm` writes exactly one `confirm_succeeded` row linking `spki_sha256` + `station_id` ↔ `session_id` ↔ owner ↔ source ↔ timestamp; `create` writes a `session_created` row with actor + source.
+- [x] 2.4 Write audit rows in `create_enrollment_session` and `enroll_station` ([enrollment.py](../../../backend/app/api/routes/enrollment.py)); thread the source (`X-Forwarded-For` leftmost, fallback `request.client.host`) and user-agent into `confirm` (add `request: Request`).
+- [x] 2.5 Add `ENROLLMENT_AUDIT_RETENTION_DAYS` (default `180`) to `config.py`; add a `@huey_client.periodic_task` nightly purge in `backend/app/tasks.py`; test that rows past the window are deleted and rows within it are retained.
 
 ## 3. Rate limits + quotas (D2)
 

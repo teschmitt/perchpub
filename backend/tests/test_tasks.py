@@ -1,18 +1,21 @@
 import importlib
 import sys
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlmodel import Session, select
 
+from app.core.config import settings
 from app.core.security import get_password_hash
 from app.models.classify_task import ClassifyTask, ClassifyTaskStatus
+from app.models.enrollment import EnrollmentAudit, EnrollmentAuditEvent
 from app.models.observation import Observation
 from app.models.species import Species
 from app.models.station import Station
 from app.models.upload import Upload
 from app.models.user import User
-from app.tasks import _lookup_species_id
+from app.tasks import _lookup_species_id, _purge_enrollment_audit
 from tests.utils.utils import random_email, random_lower_string
 
 
@@ -143,3 +146,31 @@ def test_lookup_species_id_returns_none_for_unknown_label(db: Session) -> None:
     )
 
     assert _lookup_species_id(db, unknown_label_id) is None
+
+
+def test_purge_enrollment_audit_deletes_only_rows_past_retention(db: Session) -> None:
+    """The purge deletes audit rows older than the retention window and keeps
+    rows within it (design D3).
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    stale = EnrollmentAudit(
+        event=EnrollmentAuditEvent.session_created,
+        source="stale",
+        created_at=now - timedelta(days=settings.ENROLLMENT_AUDIT_RETENTION_DAYS + 5),
+    )
+    fresh = EnrollmentAudit(
+        event=EnrollmentAuditEvent.session_created,
+        source="fresh",
+        created_at=now - timedelta(days=1),
+    )
+    db.add(stale)
+    db.add(fresh)
+    db.commit()
+    stale_id, fresh_id = stale.id, fresh.id
+
+    deleted = _purge_enrollment_audit(db)
+
+    db.expire_all()
+    assert db.get(EnrollmentAudit, stale_id) is None
+    assert db.get(EnrollmentAudit, fresh_id) is not None
+    assert deleted >= 1

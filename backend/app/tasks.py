@@ -4,18 +4,21 @@ import tempfile
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any
+from datetime import datetime, timedelta, timezone
+from typing import Any, cast
 
 import cv2 as cv
 import numpy as np
 import tensorflow as tf
-from huey import RedisHuey
+from huey import RedisHuey, crontab
 from minio import Minio
-from sqlmodel import Session, select
+from sqlalchemy.engine import CursorResult
+from sqlmodel import Session, col, delete, select
 
 from app.core.config import settings
 from app.core.db import engine
 from app.models.classify_task import ClassifyTask, ClassifyTaskStatus
+from app.models.enrollment import EnrollmentAudit
 from app.models.observation import Observation, ObservationCreate
 from app.models.species import Species
 from app.models.station import Station
@@ -47,6 +50,36 @@ garage_client = Minio(
     secure=settings.GARAGE_USE_TLS,
     region=settings.GARAGE_REGION,
 )
+
+
+def _purge_enrollment_audit(session: Session) -> int:
+    """Delete enrollment-audit rows older than the retention window (D3).
+
+    Returns the number of rows deleted. The cutoff is naive UTC to match the
+    ``TIMESTAMP WITHOUT TIME ZONE`` column (mirroring the enrollment session's
+    ``expires_at`` comparison).
+    """
+    cutoff = (
+        datetime.now(timezone.utc)
+        - timedelta(days=settings.ENROLLMENT_AUDIT_RETENTION_DAYS)
+    ).replace(tzinfo=None)
+    result = cast(
+        "CursorResult[Any]",
+        session.execute(
+            delete(EnrollmentAudit).where(col(EnrollmentAudit.created_at) < cutoff)
+        ),
+    )
+    session.commit()
+    return result.rowcount
+
+
+@huey_client.periodic_task(crontab(hour="3", minute="17"))  # type: ignore[misc]
+def purge_enrollment_audit() -> None:
+    """Nightly purge of enrollment-audit rows past the retention window."""
+    with Session(engine) as session:
+        deleted = _purge_enrollment_audit(session)
+        if deleted:
+            logger.info("Purged %d expired enrollment-audit rows", deleted)
 
 
 @dataclass
