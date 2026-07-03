@@ -15,7 +15,7 @@ class EnrollmentToken(SQLModel, table=True):
     key_id: str = Field(nullable=False)
     attempts: int = Field(ge=0, default=0)
     owner_id: uuid.UUID = Field(
-        foreign_key="user.id", nullable=False, ondelete="CASCADE"
+        foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
     )
     station_id: uuid.UUID | None = Field(
         foreign_key="station.id", default=None, ondelete="SET NULL"

@@ -833,6 +833,75 @@ def test_confirm_rate_fails_open_when_backend_unavailable(
     assert r.status_code == 200, r.text
 
 
+def test_confirm_limiter_neutralized_by_default(
+    client: TestClient, db: Session, device_ca: _DeviceCA
+) -> None:
+    """More confirm calls than the per-source limit do NOT 429 by default.
+
+    Guards the in-stack (live-Redis) suite: the confirm limiter keys on the
+    shared "testclient" source, so without the autouse fail-open fixture these
+    would 429 once past ENROLLMENT_CONFIRM_RATE_PER_MIN and break unrelated
+    confirm tests.
+    """
+    over = settings.ENROLLMENT_CONFIRM_RATE_PER_MIN + 3
+    for _ in range(over):
+        r = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{uuid.uuid4()}",
+            json={"auth_token": "x", "csr_pem": make_csr()},
+        )
+        assert r.status_code == 404, r.text  # unknown session, never 429
+
+
+def test_reenroll_revoked_pin_refused_without_signing(
+    client: TestClient, db: Session, device_ca: _DeviceCA
+) -> None:
+    """A revoked-pin re-confirm is refused BEFORE step-ca signs (no throwaway
+    cert), and the failed attempt is charged so the <=3 cap bounds retries (D1).
+    """
+    _, headers = _operator(db, client)
+    device_key = ec.generate_private_key(ec.SECP256R1())
+    sign_calls: list[str] = []
+
+    async def _tracking_sign(csr: str) -> SignedCertificate:
+        sign_calls.append(csr)
+        return _signed_cert_for(csr, device_ca.intermediate)
+
+    first = _create_session(client, headers)
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_tracking_sign):
+        r1 = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{first.session_id}",
+            json={
+                "auth_token": first.auth_token,
+                "csr_pem": _csr_with_key(device_key),
+            },
+        )
+    assert r1.status_code == 200, r1.text
+    assert len(sign_calls) == 1  # the successful enrollment signed once
+    station_id = uuid.UUID(r1.json()["station_id"])
+
+    station = db.get(Station, station_id)
+    assert station is not None
+    station.revoked_at = datetime.now(timezone.utc)
+    db.add(station)
+    db.commit()
+
+    second = _create_session(client, headers)
+    with patch("app.api.routes.enrollment.sign_device_csr", new=_tracking_sign):
+        r2 = client.post(
+            f"{settings.API_V1_STR}/enrollment/confirm/{second.session_id}",
+            json={
+                "auth_token": second.auth_token,
+                "csr_pem": _csr_with_key(device_key),
+            },
+        )
+    assert r2.status_code == 409, r2.text
+    assert len(sign_calls) == 1  # revoked re-confirm did NOT sign (no throwaway cert)
+    token = db.get(EnrollmentToken, second.session_id)
+    assert token is not None
+    assert token.attempts == 1  # the failed attempt was charged
+    assert token.claimed is False
+
+
 def _audit_rows(
     db: Session, session_id: uuid.UUID, event: EnrollmentAuditEvent
 ) -> list[EnrollmentAudit]:

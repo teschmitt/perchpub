@@ -43,7 +43,15 @@ def generate_token(auth_token: str) -> bytes:
     return hmac.new(HMAC_KEY, auth_token.encode("utf-8"), hashlib.sha256).digest()
 
 
-def _csr_spki_sha256_hex(cert: x509.Certificate) -> str:
+def _csr_spki_sha256_hex(
+    cert: x509.Certificate | x509.CertificateSigningRequest,
+) -> str:
+    """SHA-256(SPKI, DER) of a cert or CSR's public key.
+
+    Works on either because step-ca copies the CSR's public key verbatim into
+    the signed leaf, so ``SPKI(csr) == SPKI(leaf)`` — letting the station pin be
+    derived from the CSR before signing.
+    """
     spki_der = cert.public_key().public_bytes(
         Encoding.DER, PublicFormat.SubjectPublicKeyInfo
     )
@@ -228,12 +236,55 @@ async def enroll_station(
 
     # Reject malformed CSRs with a generic 400 — do not leak parser detail.
     try:
-        x509.load_pem_x509_csr(enrollment_req.csr_pem.encode("utf-8"))
+        csr = x509.load_pem_x509_csr(enrollment_req.csr_pem.encode("utf-8"))
     except ValueError:
         session.add(enrollment_session)
         session.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="invalid CSR"
+        )
+
+    # Resolve identity and the existing-station decision BEFORE signing. The pin
+    # is SHA-256(SPKI) of the CSR's public key, which step-ca copies verbatim
+    # into the leaf (CSR pin == leaf pin, get_current_station resolves SPKI-
+    # uniquely). Doing the reject checks here means a re-enrollment that cannot
+    # succeed (revoked pin, cross-owner, missing coords) is refused without a
+    # step-ca signing round-trip or a throwaway cert, and — like the other
+    # failure paths — charges the attempt so the ≤3 cap bounds retries (D1).
+    spki_pin = _csr_spki_sha256_hex(csr)
+    existing = session.exec(
+        select(Station).where(Station.spki_sha256 == spki_pin)
+    ).first()
+    if existing is not None:
+        # A revoked pin is not reusable (D1): re-enrolling the revoked key does
+        # not reactivate the station. Recovery is a fresh device key -> new SPKI
+        # -> new Station. Refuse regardless of owner.
+        if existing.revoked_at is not None:
+            session.add(enrollment_session)
+            session.commit()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="device certificate has been revoked",
+            )
+        # Refuse to silently move a device between accounts. Re-enrollment
+        # refreshes the cert for the *same* owner; cross-owner transfer is not
+        # a silent side effect of re-enrolling.
+        if existing.owner_id != enrollment_session.owner_id:
+            session.add(enrollment_session)
+            session.commit()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="device already enrolled to another account",
+            )
+    elif enrollment_session.latitude is None or enrollment_session.longitude is None:
+        # Coordinates are only needed to create a new station; a refresh keeps
+        # the station's existing location (relocation is a station-management
+        # operation, not a side effect of re-enrolling).
+        session.add(enrollment_session)
+        session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="enrollment session is missing coordinates",
         )
 
     # Sign with step-ca. Map any signing failure to a generic 502 — do not
@@ -248,50 +299,14 @@ async def enroll_station(
             detail="certificate issuance failed",
         )
 
-    leaf = x509.load_pem_x509_certificate(signed.certificate_pem.encode("utf-8"))
-    spki_pin = _csr_spki_sha256_hex(leaf)
-
     # Build the full response chain (intermediate + root) BEFORE mutating state,
     # so a missing root / empty intermediate fails loudly with the session left
     # unclaimed and retryable — no orphaned, un-redeemable Station.
     ca_chain_pem = _append_root_to_chain(signed.ca_chain_pem)
 
-    # A station keeps its device keypair across enrollments, so re-enrolling to
-    # refresh its certificate presents a CSR with the same public key -> the
-    # signed leaf carries the same SPKI -> the same pin. Station identity is
-    # resolved SPKI-uniquely (get_current_station), so an existing station with
-    # this pin must be *reused*, not duplicated: a fresh INSERT would trip the
-    # unique ix_station_spki_sha256 index with an IntegrityError (500).
-    existing = session.exec(
-        select(Station).where(Station.spki_sha256 == spki_pin)
-    ).first()
     if existing is not None:
-        # A revoked pin is not reusable (D1): re-enrolling the revoked key does
-        # not reactivate the station. Recovery is a fresh device key -> new SPKI
-        # -> new Station. Refuse regardless of owner.
-        if existing.revoked_at is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="device certificate has been revoked",
-            )
-        # Refuse to silently move a device between accounts. Re-enrollment
-        # refreshes the cert for the *same* owner; cross-owner transfer is not
-        # a silent side effect of re-enrolling.
-        if existing.owner_id != enrollment_session.owner_id:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="device already enrolled to another account",
-            )
         station = existing
     else:
-        # Coordinates are only needed to create a new station; a refresh keeps
-        # the station's existing location (relocation is a station-management
-        # operation, not a side effect of re-enrolling).
-        if enrollment_session.latitude is None or enrollment_session.longitude is None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="enrollment session is missing coordinates",
-            )
         station = Station(
             latitude=enrollment_session.latitude,
             longitude=enrollment_session.longitude,
