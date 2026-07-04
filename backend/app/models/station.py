@@ -4,7 +4,8 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlmodel import Field, Relationship, SQLModel
+from sqlalchemy.sql.elements import ColumnElement
+from sqlmodel import Field, Relationship, SQLModel, col
 
 from app.models.base import PerchPubBase
 from app.models.user import User
@@ -48,6 +49,16 @@ class Station(PerchPubBase, StationBase, table=True):
     observations: list["Observation"] = Relationship(
         back_populates="station", cascade_delete=True
     )
+
+
+def active_station_filter() -> ColumnElement[bool]:
+    """SQL predicate selecting active (non-revoked) stations (D1).
+
+    A revoked station is not active: it drops out of the station list and does
+    not count against the owned-station quota. Shared by the station listing and
+    the quota check so both agree on what "active" means.
+    """
+    return col(Station.revoked_at).is_(None)
 
 
 class StationUpdate(StationBase):

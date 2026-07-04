@@ -18,7 +18,7 @@ from sqlmodel import Session, col, func, select
 
 from app.core.config import settings
 from app.models.enrollment import EnrollmentToken
-from app.models.station import Station
+from app.models.station import Station, active_station_filter
 
 
 def _lock_owner(session: Session, owner_id: uuid.UUID) -> None:
@@ -76,7 +76,7 @@ def enforce_station_quota(
         .select_from(Station)
         .where(
             Station.owner_id == owner_id,
-            col(Station.revoked_at).is_(None),
+            active_station_filter(),
         )
     ).one()
     if owned >= settings.MAX_STATIONS_PER_USER:
