@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import select
 
-from app.api.deps import CurrentUser, SessionDep, client_source
+from app.api.deps import CurrentUser, SessionDep, audit_provenance
 from app.ca.step_ca_client import sign_device_csr
 from app.core.config import settings
 from app.core.quotas import enforce_active_session_quota, enforce_station_quota
@@ -149,8 +149,7 @@ def create_enrollment_session(
             event=EnrollmentAuditEvent.session_created,
             session_id=session_id,
             actor_user_id=current_user.id,
-            source=client_source(request),
-            user_agent=request.headers.get("user-agent"),
+            **audit_provenance(request),
         )
     )
     session.commit()
@@ -308,10 +307,9 @@ async def enroll_station(
             event=EnrollmentAuditEvent.confirm_succeeded,
             session_id=session_id,
             actor_user_id=enrollment_session.owner_id,
-            source=client_source(request),
-            user_agent=request.headers.get("user-agent"),
             spki_sha256=station.spki_sha256,
             station_id=station.id,
+            **audit_provenance(request),
         )
     )
     session.commit()

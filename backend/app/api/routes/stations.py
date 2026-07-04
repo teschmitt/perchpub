@@ -9,7 +9,7 @@ from app.api.deps import (
     CurrentUser,
     OptionalCurrentUser,
     SessionDep,
-    client_source,
+    audit_provenance,
 )
 from app.core.quotas import enforce_station_quota
 from app.models.enrollment import EnrollmentAudit, EnrollmentAuditEvent
@@ -175,8 +175,7 @@ def revoke_station(
                 actor_user_id=current_user.id,
                 station_id=station.id,
                 spki_sha256=station.spki_sha256,
-                source=client_source(request),
-                user_agent=request.headers.get("user-agent"),
+                **audit_provenance(request),
             )
         )
         session.commit()

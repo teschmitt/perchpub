@@ -317,6 +317,7 @@ def test_revoke_station_owner_succeeds(client: TestClient, db: Session) -> None:
     ).all()
     assert len(rows) == 1
     assert rows[0].actor_user_id == owner.id
+    assert rows[0].source is not None  # request provenance recorded on the row
 
 
 def test_revoke_station_is_idempotent(client: TestClient, db: Session) -> None:
