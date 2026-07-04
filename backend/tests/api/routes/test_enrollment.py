@@ -19,11 +19,10 @@ from collections.abc import Generator, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
-from redis.exceptions import ConnectionError as RedisConnectionError
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -43,6 +42,7 @@ from app.models.enrollment import (
     EnrollmentAuditEvent,
     EnrollmentSession,
 )
+from tests.utils.fake_redis import FakeRedis, FailOpenRedis
 from tests.utils.mtls import TestCA, make_ca, make_csr, make_intermediate
 from tests.utils.user import authentication_token_from_email
 from tests.utils.utils import random_email, random_lower_string
@@ -615,30 +615,22 @@ def test_reenroll_does_not_alter_existing_privacy(
     assert station.is_private is True
 
 
-class _FakeRedis:
-    """In-memory fixed-window counter standing in for Redis in rate tests."""
-
-    def __init__(self) -> None:
-        self.counts: dict[str, int] = {}
-
-    def incr(self, key: str) -> int:
-        self.counts[key] = self.counts.get(key, 0) + 1
-        return self.counts[key]
-
-    def expire(self, key: str, ttl: int) -> bool:
-        return True
-
-
 @contextlib.contextmanager
-def _fake_ratelimit_backend() -> Iterator[_FakeRedis]:
-    """Swap the limiter's Redis for a deterministic in-memory counter and pin
-    the clock so every hit lands in one fixed window.
+def _fake_ratelimit_backend() -> Iterator[FakeRedis]:
+    """Swap the limiter's Redis for a deterministic in-memory counter, pin the
+    clock so every hit lands in one fixed window, and close the circuit breaker.
+
+    An earlier fail-open call in the same test (e.g. a ``/create`` before this
+    backend is installed) may have opened the circuit under real time; with the
+    clock now pinned to the past, that stale ``_circuit_open_until`` would look
+    open and skip the fake backend. Reset it so counting is exercised.
     """
-    fake = _FakeRedis()
+    fake = FakeRedis()
     with (
         patch.object(ratelimit, "redis_client", fake),
         patch.object(ratelimit.time, "time", return_value=1_000_000.0),
     ):
+        ratelimit._reset_circuit()
         yield fake
 
 
@@ -883,14 +875,11 @@ def test_confirm_rate_fails_open_when_backend_unavailable(
     _, headers = _operator(db, client)
     enrollment = _create_session(client, headers)
 
-    broken = MagicMock()
-    broken.incr.side_effect = RedisConnectionError("backend down")
-
     async def _fake_sign(csr: str) -> SignedCertificate:
         return _signed_cert_for(csr, device_ca.intermediate)
 
     with (
-        patch.object(ratelimit, "redis_client", broken),
+        patch.object(ratelimit, "redis_client", FailOpenRedis()),
         patch("app.api.routes.enrollment.sign_device_csr", new=_fake_sign),
     ):
         r = client.post(

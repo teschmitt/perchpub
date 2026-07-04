@@ -40,19 +40,16 @@ def _fail_open_rate_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
     Default to a backend that always raises, so ``_within_fixed_window`` fails
     open (allows) regardless of whether Redis is reachable; the rate-limit tests
     opt back in with their own counting fake.
+
+    Also close the fail-open circuit breaker, whose module-level state would
+    otherwise carry a prior test's opened circuit (skipping the backend) into
+    tests that install their own counting fake.
     """
-    from redis.exceptions import RedisError
-
     from app.core import ratelimit
+    from tests.utils.fake_redis import FailOpenRedis
 
-    class _FailOpenRedis:
-        def incr(self, key: str) -> int:
-            raise RedisError("rate limiter neutralized in tests")
-
-        def expire(self, key: str, ttl: int) -> bool:
-            return True
-
-    monkeypatch.setattr(ratelimit, "redis_client", _FailOpenRedis())
+    monkeypatch.setattr(ratelimit, "redis_client", FailOpenRedis())
+    ratelimit._reset_circuit()
 
 
 @pytest.fixture(scope="module")
