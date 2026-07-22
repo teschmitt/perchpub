@@ -51,6 +51,29 @@ http:
         certResolver: le
         options: mtls
 
+    mtls-enrollment-renew:
+      # Unattended certificate renewal: the station POSTs a CSR over its
+      # existing key and authenticates with its current leaf — mTLS IS the
+      # credential, so the route must live on this entrypoint. Mirrors
+      # mtls-upload: same client-auth against the device CA, and
+      # pass-client-cert forwards the verified leaf that
+      # get_current_station/renew resolve the station from. The exact-Path
+      # rule keeps the rest of /api/v1/enrollment/ (create/confirm) OFF the
+      # mTLS entrypoint — those stay operator/QR-gated on :443. On the :443
+      # catch-all this path is still forwarded, but Traefik strips inbound
+      # X-Forwarded-Tls-Client-Cert from untrusted peers (no
+      # forwardedHeaders.trustedIPs configured), so it dead-ends in the
+      # backend's generic 401 — same posture as /api/v1/upload/.
+      rule: "Host(`api.perchpub.net`) && Path(`/api/v1/enrollment/renew`)"
+      entryPoints:
+        - mtls
+      service: backend-mtls
+      middlewares:
+        - pass-client-cert
+      tls:
+        certResolver: le
+        options: mtls
+
     mtls-classify-task:
       # After uploading, the station polls GET /api/v1/classify-task/{id} for
       # the classification result. Its outbound allowlist permits only the mTLS

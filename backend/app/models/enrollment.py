@@ -58,12 +58,37 @@ class EnrollmentResponse(SQLModel):
     station_id: uuid.UUID | None = None
 
 
+class RenewalRequest(SQLModel):
+    """Body the station POSTs to /enrollment/renew (perchstation contract §4).
+
+    The CSR must be built over the station's EXISTING keypair. There is
+    deliberately no identity field — the caller is identified by its mTLS
+    client certificate alone.
+    """
+
+    csr_pem: str
+
+
+class RenewalResponse(SQLModel):
+    """200 body for /enrollment/renew: the renewed leaf plus the
+    ``[intermediate, root]`` chain.
+
+    Both fields are REQUIRED strings; the perchstation repo pins the schema
+    names and fields against ``openapi.json`` with a drift test, so renaming a
+    field or adding a required one breaks the fleet's renewal client.
+    """
+
+    certificate_pem: str
+    ca_chain_pem: str
+
+
 class EnrollmentAuditEvent(str, enum.Enum):
     """The enrollment lifecycle events worth attributing (design D3)."""
 
     session_created = "session_created"
     confirm_succeeded = "confirm_succeeded"
     station_revoked = "station_revoked"
+    renewal_succeeded = "renewal_succeeded"
 
 
 class EnrollmentAudit(SQLModel, table=True):

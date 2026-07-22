@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -12,13 +13,20 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import select
 
-from app.api.deps import CurrentUser, SessionDep, audit_provenance
+from app.api.deps import (
+    CurrentStation,
+    CurrentUser,
+    SessionDep,
+    audit_provenance,
+    presented_client_cert,
+)
 from app.ca.step_ca_client import sign_device_csr
 from app.core.config import settings
 from app.core.quotas import enforce_active_session_quota, enforce_station_quota
 from app.core.ratelimit import (
     enforce_enrollment_confirm_rate,
     enforce_enrollment_create_rate,
+    enforce_enrollment_renew_rate,
 )
 from app.models.enrollment import (
     EnrollmentAudit,
@@ -28,9 +36,13 @@ from app.models.enrollment import (
     EnrollmentSession,
     EnrollmentSessionCreate,
     EnrollmentToken,
+    RenewalRequest,
+    RenewalResponse,
 )
 from app.models.station import Station
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 MAX_ENROLLMENT_ATTEMPTS = 3
 
@@ -320,4 +332,104 @@ async def enroll_station(
         certificate_pem=signed.certificate_pem,
         ca_chain_pem=ca_chain_pem,
         station_id=station.id,
+    )
+
+
+@router.post(
+    "/renew",
+    response_model=RenewalResponse,
+    dependencies=[Depends(enforce_enrollment_renew_rate)],
+)
+async def renew_station_certificate(
+    session: SessionDep,
+    request: Request,
+    station: CurrentStation,
+    renewal_req: RenewalRequest,
+) -> RenewalResponse:
+    """Unattended certificate renewal over mTLS (perchstation contract §4).
+
+    The mTLS sibling of /confirm: same step-ca issuance, no session — the
+    caller is identified ONLY by the presented client certificate
+    (``CurrentStation``, SPKI-pin resolution; unknown/revoked/absent all
+    collapse to its generic 401). The CSR must be over the station's EXISTING
+    key: a new-SPKI CSR is not renewal but re-enrollment, which stays
+    operator-gated. The recorded pin is never updated here, and the appended
+    root is the same enrollment root the station pinned at setup — this
+    endpoint can never rotate a key or migrate a trust anchor.
+    """
+    # 422 for an unusable CSR, per the renewal contract (any 4xx is terminal
+    # for the station's attempt). Proof of possession: the CSR self-signature
+    # must verify — /confirm delegates that to step-ca, but here the CSR's key
+    # feeds the SPKI equality check below, so prove possession first.
+    try:
+        csr = x509.load_pem_x509_csr(renewal_req.csr_pem.encode("utf-8"))
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid CSR"
+        )
+    if not csr.is_signature_valid:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid CSR"
+        )
+
+    # SPKI equality — THE check that makes unattended renewal safe. Both sides
+    # are SHA-256(SPKI DER): Station.spki_sha256 was recorded from the leaf at
+    # enrollment and step-ca copies the CSR's key verbatim into the new leaf,
+    # so equal pins == same key == the station renews only its own cert.
+    if _csr_spki_sha256_hex(csr) != station.spki_sha256:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="CSR public key does not match the presented client certificate",
+        )
+
+    # Sign via the same step-ca path as /confirm, with the same generic 502 on
+    # failure (transient for the station; it retries with bounded backoff).
+    try:
+        signed = await sign_device_csr(renewal_req.csr_pem)
+    except (httpx.HTTPError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="certificate issuance failed",
+        )
+
+    ca_chain_pem = _append_root_to_chain(signed.ca_chain_pem)
+
+    # The audit line needs the new leaf's serial/not_after; a leaf that does
+    # not parse is a failed issuance (502, retryable), not a 200 the station's
+    # validation would reject anyway.
+    try:
+        new_leaf = x509.load_pem_x509_certificate(
+            (signed.certificate_pem or "").encode("utf-8")
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="certificate issuance failed",
+        )
+
+    session.add(
+        EnrollmentAudit(
+            event=EnrollmentAuditEvent.renewal_succeeded,
+            station_id=station.id,
+            spki_sha256=station.spki_sha256,
+            **audit_provenance(request),
+        )
+    )
+    session.commit()
+
+    # One line per issuance; serials in hex. Never log the CSR or key material.
+    presented = presented_client_cert(request)
+    logger.info(
+        "station certificate renewed: station_id=%s spki_sha256=%s "
+        "old_serial=%s new_serial=%x not_after=%s",
+        station.id,
+        station.spki_sha256,
+        f"{presented.serial_number:x}" if presented is not None else "unavailable",
+        new_leaf.serial_number,
+        new_leaf.not_valid_after_utc.isoformat(),
+    )
+
+    return RenewalResponse(
+        certificate_pem=signed.certificate_pem,
+        ca_chain_pem=ca_chain_pem,
     )

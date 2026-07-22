@@ -136,6 +136,43 @@ _GENERIC_MTLS_401 = HTTPException(
 )
 
 
+def _parse_forwarded_client_leaf(encoded: str) -> x509.Certificate:
+    """Decode Traefik's forwarded client-cert header into the leaf certificate.
+
+    Takes the first entry (the leaf) of the comma-separated chain and
+    re-attaches the PEM armor Traefik strips — the full header contract lives
+    in ``get_current_station``'s docstring. Raises ``ValueError``/``TypeError``
+    on malformed input; callers decide how a parse failure degrades.
+    """
+    leaf_b64 = urllib.parse.unquote(encoded).split(",", 1)[0].strip()
+    decoded = leaf_b64.encode("utf-8")
+    if b"-----BEGIN CERTIFICATE-----" not in decoded:
+        decoded = (
+            b"-----BEGIN CERTIFICATE-----\n"
+            + decoded
+            + b"\n-----END CERTIFICATE-----\n"
+        )
+    return x509.load_pem_x509_certificate(decoded)
+
+
+def presented_client_cert(request: Request) -> x509.Certificate | None:
+    """Best-effort re-read of the forwarded mTLS leaf, for audit detail only.
+
+    The renewal audit records the presented cert's serial (the "old" serial).
+    This reuses the exact parser ``get_current_station`` authenticates with,
+    but it is NOT an identity path: callers must already hold a
+    ``CurrentStation``, and any parse failure degrades to ``None`` (the audit
+    field is optional), never to a different identity.
+    """
+    encoded = request.headers.get(settings.MTLS_CLIENT_CERT_HEADER)
+    if not encoded:
+        return None
+    try:
+        return _parse_forwarded_client_leaf(encoded)
+    except (ValueError, TypeError):
+        return None
+
+
 def get_current_station(session: SessionDep, request: Request) -> Station:
     """Resolve the calling station from the forwarded mTLS client cert.
 
@@ -172,18 +209,7 @@ def get_current_station(session: SessionDep, request: Request) -> Station:
         raise _GENERIC_MTLS_401
 
     try:
-        # Take the leaf (first entry) from Traefik's comma-separated chain and
-        # re-attach the PEM armor it strips. Splitting before re-armoring is
-        # load-bearing — see the docstring's "Header format" note.
-        leaf_b64 = urllib.parse.unquote(encoded).split(",", 1)[0].strip()
-        decoded = leaf_b64.encode("utf-8")
-        if b"-----BEGIN CERTIFICATE-----" not in decoded:
-            decoded = (
-                b"-----BEGIN CERTIFICATE-----\n"
-                + decoded
-                + b"\n-----END CERTIFICATE-----\n"
-            )
-        leaf = x509.load_pem_x509_certificate(decoded)
+        leaf = _parse_forwarded_client_leaf(encoded)
         ca = _load_device_ca()
         leaf.verify_directly_issued_by(ca)
         now = datetime.now(timezone.utc)
