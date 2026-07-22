@@ -36,6 +36,24 @@ redis_client = redis.Redis(
     socket_timeout=0.25,
 )
 
+# Circuit breaker for the fail-open limiter: after a Redis error we stop probing
+# the backend (and paying its socket timeout) on every request for a cooldown,
+# then let one request try again. Epoch seconds until which the circuit is open;
+# 0.0 means closed. Module-level like `redis_client`; reset between tests.
+_CIRCUIT_COOLDOWN_SECONDS = 30.0
+_circuit_open_until = 0.0
+
+
+def _open_circuit(now: float) -> None:
+    global _circuit_open_until
+    _circuit_open_until = now + _CIRCUIT_COOLDOWN_SECONDS
+
+
+def _reset_circuit() -> None:
+    """Close the circuit breaker. Test hook — the backend fake changes per test."""
+    global _circuit_open_until
+    _circuit_open_until = 0.0
+
 
 def _within_fixed_window(bucket: str, identity: str, limit: int) -> tuple[bool, int]:
     """Count one hit for ``(bucket, identity)`` in the current minute window.
@@ -44,15 +62,24 @@ def _within_fixed_window(bucket: str, identity: str, limit: int) -> tuple[bool, 
     (logs and allows) — see the module docstring.
     """
     now = time.time()
+    if now < _circuit_open_until:
+        # Circuit breaker: a recent Redis error opened the circuit, so skip the
+        # backend (and its socket timeout) for a cooldown instead of re-probing
+        # a down backend on every request. Fail open while open.
+        return True, 0
     key = f"ratelimit:{bucket}:{identity}:{int(now // 60)}"
     try:
-        # redis-py types incr() as a sync/async union; the sync client returns
-        # an int.
-        count = cast(int, redis_client.incr(key))
-        if count == 1:
-            # First hit of this window: expire the counter so it self-resets.
-            redis_client.expire(key, 60)
+        # Atomic in one MULTI/EXEC round trip: create the window counter with
+        # its TTL if absent, then increment. `SET .. NX EX` sets the expiry
+        # exactly once at window creation (and never resets it), so the counter
+        # can never be left without a TTL — a bare `incr` then a separate
+        # `expire` could, leaking the key if the process died between them.
+        pipe = redis_client.pipeline()
+        pipe.set(key, 0, nx=True, ex=60)
+        pipe.incr(key)
+        count = cast(int, pipe.execute()[1])
     except RedisError as exc:
+        _open_circuit(now)
         logger.warning("rate-limit backend unavailable (%s); failing open", exc)
         return True, 0
     if count > limit:

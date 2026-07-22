@@ -111,6 +111,19 @@ def client_source(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
+def audit_provenance(request: Request) -> dict[str, str | None]:
+    """Request-derived provenance fields for an ``EnrollmentAudit`` row.
+
+    Centralises the ``source`` (see ``client_source``) + ``user_agent`` pair the
+    audit sites splat into ``EnrollmentAudit(...)``, so the forwarded-header
+    logic and the ``"user-agent"`` header key live in exactly one place.
+    """
+    return {
+        "source": client_source(request),
+        "user_agent": request.headers.get("user-agent"),
+    }
+
+
 @functools.lru_cache(maxsize=1)
 def _load_device_ca() -> x509.Certificate:
     pem_bytes = Path(settings.DEVICE_CLIENT_CA_CERT_PATH).read_bytes()

@@ -3,14 +3,15 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy.sql.elements import ColumnElement
-from sqlmodel import col, func, or_, select
+from sqlmodel import Session, col, func, or_, select
 
 from app.api.deps import (
     CurrentUser,
     OptionalCurrentUser,
     SessionDep,
-    client_source,
+    audit_provenance,
 )
+from app.core.quotas import enforce_station_quota
 from app.models.enrollment import EnrollmentAudit, EnrollmentAuditEvent
 from app.models.station import (
     Station,
@@ -18,6 +19,7 @@ from app.models.station import (
     StationPublic,
     StationsPublic,
     StationUpdate,
+    active_station_filter,
 )
 from app.models.user import User
 
@@ -38,6 +40,26 @@ def _visibility_filter(current_user: User | None) -> ColumnElement[bool] | None:
     return or_(public_only, Station.owner_id == current_user.id)
 
 
+def _load_station_for_mutation(
+    session: Session, station_id: uuid.UUID, current_user: User
+) -> Station:
+    """Load a station the caller is allowed to mutate, or raise.
+
+    Owner-or-superuser may proceed. A non-owner gets 403 on a public station and
+    404 on a private one — the same existence-leak avoidance as `read_station`.
+    Shared by `update_station` and `revoke_station` so their authorization can
+    never drift apart.
+    """
+    station = session.get(Station, station_id)
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    if station.owner_id != current_user.id and not current_user.is_superuser:
+        if station.is_private:
+            raise HTTPException(status_code=404, detail="Station not found")
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+    return station
+
+
 @router.get("/", response_model=StationsPublic)
 def read_stations(
     session: SessionDep,
@@ -52,7 +74,7 @@ def read_stations(
 
     # A revoked station drops out of the active list for everyone, owner and
     # superuser included (D1) — it is not an active station.
-    active = col(Station.revoked_at).is_(None)
+    active = active_station_filter()
     count_statement = select(func.count()).select_from(Station).where(active)
     statement = select(Station).where(active)
     if visibility is not None:
@@ -92,7 +114,11 @@ def create_station(
     """
     Create new station.
     """
-    # TODO: add owner field
+    # The owned-station ceiling applies here too, so it cannot be bypassed by
+    # creating stations directly instead of through enrollment (D2).
+    enforce_station_quota(
+        session, current_user.id, is_superuser=current_user.is_superuser
+    )
 
     station = Station.model_validate(station_in, update={"owner_id": current_user.id})
     session.add(station)
@@ -114,13 +140,7 @@ def update_station(
     Non-owners get 403 on a public station, 404 on a private one (matching
     `read_station`'s existence-leak avoidance).
     """
-    station = session.get(Station, id)
-    if not station:
-        raise HTTPException(status_code=404, detail="Station not found")
-    if station.owner_id != current_user.id and not current_user.is_superuser:
-        if station.is_private:
-            raise HTTPException(status_code=404, detail="Station not found")
-        raise HTTPException(status_code=403, detail="Not enough permissions")
+    station = _load_station_for_mutation(session, id, current_user)
     update_dict = item_in.model_dump(exclude_unset=True)
     station.sqlmodel_update(update_dict)
     session.add(station)
@@ -145,13 +165,7 @@ def revoke_station(
     re-revoking keeps the original `revoked_at` and writes no second audit row.
     Recovery is re-enrolling a fresh device key (a new SPKI), not un-revoking.
     """
-    station = session.get(Station, id)
-    if not station:
-        raise HTTPException(status_code=404, detail="Station not found")
-    if station.owner_id != current_user.id and not current_user.is_superuser:
-        if station.is_private:
-            raise HTTPException(status_code=404, detail="Station not found")
-        raise HTTPException(status_code=403, detail="Not enough permissions")
+    station = _load_station_for_mutation(session, id, current_user)
     if station.revoked_at is None:
         station.revoked_at = datetime.now(timezone.utc)
         session.add(station)
@@ -161,8 +175,7 @@ def revoke_station(
                 actor_user_id=current_user.id,
                 station_id=station.id,
                 spki_sha256=station.spki_sha256,
-                source=client_source(request),
-                user_agent=request.headers.get("user-agent"),
+                **audit_provenance(request),
             )
         )
         session.commit()

@@ -190,6 +190,26 @@ def test_read_station_other_user_private_returns_404(
     assert r.status_code == 404
 
 
+def test_read_station_detail_returns_revoked_station(
+    client: TestClient, db: Session
+) -> None:
+    """A revoked station is still retrievable by id, even though it drops out of
+    the active list (D1). The asymmetry is intentional: revocation is
+    non-destructive, so an owner keeps visibility of the station and its history,
+    and `StationPublic.revoked_at` surfaces the status. (Locks the intended
+    behaviour flagged in review — detail shows what the list hides.)
+    """
+    station = _seed_station(db, is_private=False)
+    station.revoked_at = datetime.now(timezone.utc)
+    db.add(station)
+    db.commit()
+
+    r = client.get(f"{settings.API_V1_STR}/station/{station.id}")
+    assert r.status_code == 200
+    assert r.json()["id"] == str(station.id)
+    assert r.json()["revoked_at"] is not None
+
+
 def test_station_spki_sha256_is_unique(db: Session) -> None:
     owner = _seed_user(db, password=random_lower_string())
     pin = "a" * 64
@@ -205,6 +225,47 @@ def test_station_spki_sha256_is_unique(db: Session) -> None:
     with pytest.raises(IntegrityError):
         db.commit()
     db.rollback()
+
+
+def test_create_station_at_ceiling_returns_403(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The owned-station ceiling is enforced on direct POST /station/ too, so it
+    cannot be bypassed to overshoot the cap (D2)."""
+    monkeypatch.setattr(settings, "MAX_STATIONS_PER_USER", 2)
+    password = random_lower_string()
+    owner = _seed_user(db, password=password)
+    for _ in range(2):
+        db.add(Station(latitude=0.0, longitude=0.0, owner_id=owner.id))
+    db.commit()
+
+    headers = user_authentication_headers(
+        client=client, email=owner.email, password=password
+    )
+    r = client.post(
+        f"{settings.API_V1_STR}/station/",
+        json={"latitude": 1.0, "longitude": 2.0},
+        headers=headers,
+    )
+    assert r.status_code == 403, r.text
+    stations = db.exec(select(Station).where(Station.owner_id == owner.id)).all()
+    assert len(stations) == 2  # none created
+
+
+def test_create_station_quota_exempts_superuser(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Superusers are exempt from the station ceiling on POST /station/."""
+    monkeypatch.setattr(settings, "MAX_STATIONS_PER_USER", 0)
+    r = client.post(
+        f"{settings.API_V1_STR}/station/",
+        json={"latitude": 1.0, "longitude": 2.0},
+        headers=superuser_token_headers,
+    )
+    assert r.status_code == 200, r.text
 
 
 def test_read_stations_owner_excludes_revoked(
@@ -256,6 +317,7 @@ def test_revoke_station_owner_succeeds(client: TestClient, db: Session) -> None:
     ).all()
     assert len(rows) == 1
     assert rows[0].actor_user_id == owner.id
+    assert rows[0].source is not None  # request provenance recorded on the row
 
 
 def test_revoke_station_is_idempotent(client: TestClient, db: Session) -> None:

@@ -9,7 +9,10 @@ engine = create_engine(
     pool_size=10,
     max_overflow=20,
     pool_pre_ping=True,
-    connect_args={"options": "-c statement_timeout=15000"},
+    # Pin the session TimeZone to UTC so aware-UTC writes and naive-UTC
+    # comparisons (enrollment expiry, per-user quotas, audit purge) never skew
+    # on a server whose default TimeZone is not UTC.
+    connect_args={"options": "-c statement_timeout=15000 -c timezone=UTC"},
 )
 
 

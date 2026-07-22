@@ -254,6 +254,32 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v1/station/{id}/revoke': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Revoke Station
+		 * @description Revoke a station so its certificate no longer authenticates mTLS uploads.
+		 *
+		 *     Owner-or-superuser; a non-owner gets 403 on a public station and 404 on a
+		 *     private one, mirroring `update_station`'s existence-leak avoidance.
+		 *     Non-destructive — observations and uploads are retained — and idempotent:
+		 *     re-revoking keeps the original `revoked_at` and writes no second audit row.
+		 *     Recovery is re-enrolling a fresh device key (a new SPKI), not un-revoking.
+		 */
+		post: operations['station-revoke_station'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/login/access-token': {
 		parameters: {
 			query?: never;
@@ -902,6 +928,8 @@ export interface components {
 			 */
 			id: string;
 			owner: components['schemas']['StationOwnerPublic'] | null;
+			/** Revoked At */
+			revoked_at?: string | null;
 		};
 		/**
 		 * StationUpdate
@@ -1618,6 +1646,37 @@ export interface operations {
 				'application/json': components['schemas']['StationUpdate'];
 			};
 		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['StationPublic'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	'station-revoke_station': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
 		responses: {
 			/** @description Successful Response */
 			200: {
