@@ -4,7 +4,7 @@
 # nginx-static image: build once, run the Node server on :3000.
 
 # --- build: install deps and compile the adapter-node server ---
-FROM node:24-slim AS build
+FROM node:26-slim AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -12,7 +12,7 @@ COPY . .
 RUN npm run build
 
 # --- dev: source + deps for the Vite dev server (docker-compose.override.yml) ---
-FROM node:24-slim AS dev
+FROM node:26-slim AS dev
 WORKDIR /app
 ENV NODE_ENV=development
 COPY package*.json ./
@@ -22,7 +22,7 @@ EXPOSE 5173
 CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
 
 # --- runtime: only the built server + its modules (default target) ---
-FROM node:24-slim AS runtime
+FROM node:26-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
