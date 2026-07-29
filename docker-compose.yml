@@ -275,7 +275,7 @@ services:
       - redis:/data
 
   step-ca:
-    image: smallstep/step-ca:0.29.0
+    image: smallstep/step-ca:0.30.2
     restart: always
     networks:
       - default
@@ -301,7 +301,7 @@ services:
   # Exits 0 once the JWK file is in place; backend depends_on this service
   # completing successfully before booting.
   step-ca-provisioner-init:
-    image: smallstep/step-ca:0.29.0
+    image: smallstep/step-ca:0.30.2
     networks:
       - default
     depends_on:
