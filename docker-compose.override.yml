@@ -92,6 +92,24 @@ services:
       context: ./frontend
       target: dev
     command: npm run dev -- --host 0.0.0.0 --port 5173
+    # Live-sync host source into the container so `docker compose watch` hot-reloads
+    # the Vite dev server (matches the backend's watch above). node_modules is NEVER
+    # synced — the image builds its own platform-native install (e.g. rolldown
+    # bindings), and clobbering it with a host build breaks the dev server. A change
+    # to the dependency manifest rebuilds the image so `npm ci` re-runs.
+    develop:
+      watch:
+        - path: ./frontend
+          action: sync
+          target: /app
+          ignore:
+            - ./frontend/node_modules
+            - node_modules
+            - .svelte-kit
+        - path: ./frontend/package.json
+          action: rebuild
+        - path: ./frontend/package-lock.json
+          action: rebuild
     ports:
       - "5173:5173"
     environment:
