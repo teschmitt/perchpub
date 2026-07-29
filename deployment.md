@@ -9,7 +9,7 @@ Production deploys to a **single OVH Public Cloud instance, provisioned by Terra
 A Terraform deploy brings up the existing Compose topology (backend, worker, db, redis, step-ca + provisioner-init, frontend, adminer) plus an **in-stack Traefik** added by the prod overlay [docker-compose.prod.yml](./docker-compose.prod.yml):
 
 - HTTPS termination via Let's Encrypt on `:443` for `api.<domain>`, `dashboard.<domain>`, and `adminer.<domain>`.
-- A dedicated **mTLS entrypoint on `:8443`** for the station-facing routes — `/api/v1/upload/` (POST media) and `/api/v1/classify-task/` (poll the classification result) — configured with `RequireAndVerifyClientCert` against the device CA and a `passTLSClientCert` middleware (dynamic config in [deploy/traefik/dynamic/dynamic.yml](./deploy/traefik/dynamic/dynamic.yml)). Both arrive on `:8443` because a station's outbound allowlist permits only this mTLS base. Traefik mounts the device CA read-only from the shared `step-ca` volume's `certs/` subpath.
+- A dedicated **mTLS entrypoint on `:8443`** for the station-facing routes — `/api/v1/upload/` (POST media), `/api/v1/classify-task/` (poll the classification result), and `/api/v1/enrollment/renew` (unattended cert renewal, where the current leaf *is* the credential) — configured with `RequireAndVerifyClientCert` against the device CA and a `passTLSClientCert` middleware (dynamic config in [deploy/traefik/dynamic/dynamic.yml](./deploy/traefik/dynamic/dynamic.yml)). All arrive on `:8443` because a station's outbound allowlist permits only this mTLS base. Traefik mounts the device CA read-only from the shared `step-ca` volume's `certs/` subpath.
 - The stateful named volumes (`pgdata`, `redis`, `step-ca`) are bound to the attached block volume under `/mnt/perchpub-data` so data survives an instance rebuild.
 
 There is no separately-deployed proxy and no `traefik-public` network to create by hand — the prod overlay declares it. The dev stack runs no proxy at all (FU-11); devs and tests hit services on their mapped host ports.
@@ -59,6 +59,7 @@ python -c "import secrets; print(secrets.token_bytes(32).hex())"
 - Adminer: `https://adminer.perchpub.net`
 - Station mTLS upload: `https://api.perchpub.net:8443/api/v1/upload/`
 - Station mTLS classify-task poll: `https://api.perchpub.net:8443/api/v1/classify-task/{id}`
+- Station mTLS cert renewal: `https://api.perchpub.net:8443/api/v1/enrollment/renew`
 
 (Staging and managed-K8s/Postgres are deliberately out of scope for now.)
 

@@ -112,6 +112,35 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v1/enrollment/renew': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Renew Station Certificate
+		 * @description Unattended certificate renewal over mTLS (perchstation contract §4).
+		 *
+		 *     The mTLS sibling of /confirm: same step-ca issuance, no session — the
+		 *     caller is identified ONLY by the presented client certificate
+		 *     (``CurrentStation``, SPKI-pin resolution; unknown/revoked/absent all
+		 *     collapse to its generic 401). The CSR must be over the station's EXISTING
+		 *     key: a new-SPKI CSR is not renewal but re-enrollment, which stays
+		 *     operator-gated. The recorded pin is never updated here, and the appended
+		 *     root is the same enrollment root the station pinned at setup — this
+		 *     endpoint can never rotate a key or migrate a trust anchor.
+		 */
+		post: operations['enrollment-renew_station_certificate'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v1/species/': {
 		parameters: {
 			query?: never;
@@ -828,6 +857,33 @@ export interface components {
 			is_verified: boolean;
 		};
 		/**
+		 * RenewalRequest
+		 * @description Body the station POSTs to /enrollment/renew (perchstation contract §4).
+		 *
+		 *     The CSR must be built over the station's EXISTING keypair. There is
+		 *     deliberately no identity field — the caller is identified by its mTLS
+		 *     client certificate alone.
+		 */
+		RenewalRequest: {
+			/** Csr Pem */
+			csr_pem: string;
+		};
+		/**
+		 * RenewalResponse
+		 * @description 200 body for /enrollment/renew: the renewed leaf plus the
+		 *     ``[intermediate, root]`` chain.
+		 *
+		 *     Both fields are REQUIRED strings; the perchstation repo pins the schema
+		 *     names and fields against ``openapi.json`` with a drift test, so renaming a
+		 *     field or adding a required one breaks the fleet's renewal client.
+		 */
+		RenewalResponse: {
+			/** Certificate Pem */
+			certificate_pem: string;
+			/** Ca Chain Pem */
+			ca_chain_pem: string;
+		};
+		/**
 		 * SpeciesCreate
 		 * @description Schema for creating a new species.
 		 */
@@ -1296,6 +1352,39 @@ export interface operations {
 				};
 				content: {
 					'application/json': components['schemas']['EnrollmentResponse'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	'enrollment-renew_station_certificate': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['RenewalRequest'];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['RenewalResponse'];
 				};
 			};
 			/** @description Validation Error */

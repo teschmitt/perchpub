@@ -19,7 +19,7 @@
 			>
 		</span>
 		<a
-			href="https://codeberg.org/perchpub/perchpub"
+			href="https://github.com/teschmitt/perchpub"
 			target="_blank"
 			rel="noopener noreferrer"
 			data-testid="footer-source"

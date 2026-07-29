@@ -21,7 +21,7 @@ test('the footer exposes a Source link for AGPL section 13', async ({ request })
 
 	const html = await res.text();
 	expect(html).toContain('data-testid="footer-source"');
-	expect(html).toContain('https://codeberg.org/perchpub/perchpub');
+	expect(html).toContain('https://github.com/teschmitt/perchpub');
 });
 
 test('the public zone is reachable anonymously without a redirect', async ({ page }) => {

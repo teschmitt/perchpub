@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     # enforced. Superusers are exempt from the create-rate and the quotas.
     ENROLLMENT_CREATE_RATE_PER_MIN: int = 5
     ENROLLMENT_CONFIRM_RATE_PER_MIN: int = 10
+    # Per-station cap on unattended cert renewals (/enrollment/renew). A
+    # healthy station renews about once a day and retries on a backoff capped
+    # at 1 h, so even this small budget is generous.
+    ENROLLMENT_RENEW_RATE_PER_MIN: int = 5
     MAX_ACTIVE_ENROLLMENT_SESSIONS_PER_USER: int = 5
     MAX_STATIONS_PER_USER: int = 25
 

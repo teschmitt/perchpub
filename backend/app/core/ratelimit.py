@@ -20,7 +20,7 @@ import redis
 from fastapi import HTTPException, Request, status
 from redis.exceptions import RedisError
 
-from app.api.deps import CurrentUser, client_source
+from app.api.deps import CurrentStation, CurrentUser, client_source
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -123,6 +123,23 @@ def enforce_enrollment_confirm_rate(request: Request) -> None:
         "enroll_confirm",
         client_source(request) or "unknown",
         settings.ENROLLMENT_CONFIRM_RATE_PER_MIN,
+    )
+    if not allowed:
+        _reject(retry_after)
+
+
+def enforce_enrollment_renew_rate(station: CurrentStation) -> None:
+    """Per-station rate limit on ``POST /enrollment/renew``.
+
+    Keyed by the mTLS-resolved station, so it runs strictly after
+    authentication: an unauthenticated request is 401'd by ``CurrentStation``
+    and never consumes budget (nor learns whether a pin is enrolled). The 429
+    is terminal-for-the-attempt on the station, which backs off (≤1 h).
+    """
+    allowed, retry_after = _within_fixed_window(
+        "enroll_renew",
+        str(station.id),
+        settings.ENROLLMENT_RENEW_RATE_PER_MIN,
     )
     if not allowed:
         _reject(retry_after)

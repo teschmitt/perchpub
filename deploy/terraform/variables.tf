@@ -64,7 +64,7 @@ variable "create_egress_secgroup" {
 variable "repo_url" {
   description = "Public git URL cloned on the box and built with compose."
   type        = string
-  default     = "https://codeberg.org/perchpub/perchpub.git"
+  default     = "https://github.com/teschmitt/perchpub.git"
 }
 
 variable "repo_ref" {

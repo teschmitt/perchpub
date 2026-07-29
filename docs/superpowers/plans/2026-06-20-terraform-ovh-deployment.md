@@ -546,7 +546,7 @@ git commit -m "feat(edge): in-stack Traefik prod overlay with http/https/mtls + 
 - Create: `deploy/terraform/providers.tf`, `deploy/terraform/variables.tf`, `deploy/terraform/terraform.tfvars.example`, `deploy/terraform/.gitignore`
 
 **Interfaces:**
-- Produces: provider config (`ovh`, `openstack`, `random`); input variables consumed by every later TF task — `ovh_cloud_project_id`, `region` (default `"GRA"`), `flavor_name` (default `"b3-8"`), `image_name` (default `"Debian 12"`), `domain` (default `"perchpub.net"`), `owner_email`, `ssh_pubkey`, `ssh_allowed_cidr` (default `"0.0.0.0/0"`), `repo_url` (default the public Codeberg URL), `volume_size_gb` (default `40`), `bucket_name` (default `"perchpub-bucket"`).
+- Produces: provider config (`ovh`, `openstack`, `random`); input variables consumed by every later TF task — `ovh_cloud_project_id`, `region` (default `"GRA"`), `flavor_name` (default `"b3-8"`), `image_name` (default `"Debian 12"`), `domain` (default `"perchpub.net"`), `owner_email`, `ssh_pubkey`, `ssh_allowed_cidr` (default `"0.0.0.0/0"`), `repo_url` (default the public GitHub URL), `volume_size_gb` (default `40`), `bucket_name` (default `"perchpub-bucket"`).
 
 - [ ] **Step 1: Create `providers.tf`**
 
@@ -635,7 +635,7 @@ variable "ssh_allowed_cidr" {
 variable "repo_url" {
   description = "Public git URL cloned on the box and built with compose."
   type        = string
-  default     = "https://codeberg.org/perchpub/perchpub.git"
+  default     = "https://github.com/teschmitt/perchpub.git"
 }
 
 variable "volume_size_gb" {
@@ -651,7 +651,7 @@ variable "bucket_name" {
 }
 ```
 
-> Note: confirm the `repo_url` default matches the project's actual public Codeberg path before deploy; override in tfvars if different.
+> Note: confirm the `repo_url` default matches the project's actual public GitHub path before deploy; override in tfvars if different.
 
 - [ ] **Step 3: Create `terraform.tfvars.example`**
 
@@ -669,7 +669,7 @@ ssh_pubkey           = "ssh-ed25519 AAAA... you@host"
 # flavor_name     = "b3-8"
 # image_name      = "Debian 12"
 # domain          = "perchpub.net"
-# repo_url        = "https://codeberg.org/perchpub/perchpub.git"
+# repo_url        = "https://github.com/teschmitt/perchpub.git"
 # volume_size_gb  = 40
 # bucket_name     = "perchpub-bucket"
 ```
