@@ -4,6 +4,7 @@ import {
 	SESSION_COOKIE,
 	SESSION_MAX_AGE,
 	safeRedirectTarget,
+	secureCookies,
 	sessionCookieOptions
 } from '$lib/server/auth';
 import type { Actions, PageServerLoad } from './$types';
@@ -40,7 +41,14 @@ export const actions: Actions = {
 		}
 
 		// Set the httpOnly session cookie — the JWT never reaches client JS.
-		cookies.set(SESSION_COOKIE, data.access_token, sessionCookieOptions(SESSION_MAX_AGE));
+		// `Secure` follows the request scheme (see secureCookies) so it holds over
+		// plain-HTTP dev — e.g. a phone at http://<lan-ip>:5173 — yet stays Secure
+		// in prod behind Traefik.
+		cookies.set(
+			SESSION_COOKIE,
+			data.access_token,
+			sessionCookieOptions(SESSION_MAX_AGE, secureCookies(url))
+		);
 		redirect(303, safeRedirectTarget(url.searchParams.get('redirectTo')));
 	}
 };

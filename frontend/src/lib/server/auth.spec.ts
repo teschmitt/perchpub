@@ -7,6 +7,7 @@ import {
 	requireSuperuser,
 	requireUser,
 	safeRedirectTarget,
+	secureCookies,
 	sessionCookieOptions
 } from './auth';
 
@@ -36,14 +37,35 @@ describe('bearerFromCookies', () => {
 });
 
 describe('sessionCookieOptions', () => {
-	it('is httpOnly, secure, lax, root-path with the given maxAge', () => {
-		expect(sessionCookieOptions(123)).toEqual({
+	it('is httpOnly, lax, root-path with the given maxAge; Secure set when asked', () => {
+		expect(sessionCookieOptions(123, true)).toEqual({
 			httpOnly: true,
 			secure: true,
 			sameSite: 'lax',
 			path: '/',
 			maxAge: 123
 		});
+	});
+
+	it('drops Secure when secure=false so the cookie survives plain-HTTP dev (e.g. phone on a LAN IP)', () => {
+		expect(sessionCookieOptions(123, false)).toEqual({
+			httpOnly: true,
+			secure: false,
+			sameSite: 'lax',
+			path: '/',
+			maxAge: 123
+		});
+	});
+});
+
+describe('secureCookies', () => {
+	it('is true for an https request (prod / behind Traefik via X-Forwarded-Proto)', () => {
+		expect(secureCookies(new URL('https://perch.example/login'))).toBe(true);
+	});
+
+	it('is false for a plain-http request (dev, incl. a phone on a LAN IP)', () => {
+		expect(secureCookies(new URL('http://192.168.1.20:5173/login'))).toBe(false);
+		expect(secureCookies(new URL('http://localhost:5173/login'))).toBe(false);
 	});
 });
 

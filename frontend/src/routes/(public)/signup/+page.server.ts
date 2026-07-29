@@ -1,6 +1,11 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { createApiClient, internalApiUrl } from '$lib/api/client';
-import { SESSION_COOKIE, SESSION_MAX_AGE, sessionCookieOptions } from '$lib/server/auth';
+import {
+	SESSION_COOKIE,
+	SESSION_MAX_AGE,
+	secureCookies,
+	sessionCookieOptions
+} from '$lib/server/auth';
 import type { Actions, PageServerLoad } from './$types';
 
 interface SignupResult {
@@ -17,7 +22,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 };
 
 export const actions = {
-	default: async ({ request, cookies, fetch }) => {
+	default: async ({ request, cookies, fetch, url }) => {
 		const form = await request.formData();
 		const email = String(form.get('email') ?? '').trim();
 		const password = String(form.get('password') ?? '');
@@ -61,7 +66,14 @@ export const actions = {
 		}
 
 		// Set the httpOnly session cookie — the JWT never reaches client JS.
-		cookies.set(SESSION_COOKIE, grant.data.access_token, sessionCookieOptions(SESSION_MAX_AGE));
+		// `Secure` follows the request scheme (see secureCookies) so it holds over
+		// plain-HTTP dev — e.g. a phone at http://<lan-ip>:5173 — yet stays Secure
+		// in prod behind Traefik.
+		cookies.set(
+			SESSION_COOKIE,
+			grant.data.access_token,
+			sessionCookieOptions(SESSION_MAX_AGE, secureCookies(url))
+		);
 		redirect(303, '/stations/new');
 	}
 } satisfies Actions;
