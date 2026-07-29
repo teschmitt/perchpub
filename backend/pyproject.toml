@@ -5,7 +5,7 @@ description = ""
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.12.7,<3.13"
 dependencies = [
-    "alembic<2.0.0,>=1.12.1",
+    "alembic>=1.18.5,<2.0.0",
     # Pin bcrypt until passlib supports the latest
     "bcrypt==4.3.0",
     "cryptography>=42.0.0,<46.0.0",
