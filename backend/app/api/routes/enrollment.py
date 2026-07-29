@@ -171,6 +171,9 @@ def create_enrollment_session(
         auth_token=auth_token,
         expires_at=expires_at,
         ca_pin=ca_pin,
+        # The public station-facing enrollment origin (`:443` edge), emitted so a
+        # station enrolls with zero pre-configuration. Non-secret; never redacted.
+        perchpub_url=settings.STATION_EDGE_URL,
     )
 
 

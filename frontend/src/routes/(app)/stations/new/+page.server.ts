@@ -65,6 +65,7 @@ export const actions = {
 				session_id: data.session_id,
 				auth_token: data.auth_token,
 				ca_pin: data.ca_pin,
+				perchpub_url: data.perchpub_url,
 				expires_at: data.expires_at
 			},
 			baseline

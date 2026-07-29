@@ -131,6 +131,7 @@
 			token={session.auth_token}
 			sessionId={session.session_id}
 			caPin={session.ca_pin}
+			perchpubUrl={session.perchpub_url}
 			expiresAt={session.expires_at}
 		/>
 

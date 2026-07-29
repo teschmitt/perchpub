@@ -36,7 +36,7 @@ single JSON object**. Not a URL, not base64-of-JSON, not CBOR — the JSON text
 itself.
 
 ```json
-{"session_id":"550e8400-e29b-41d4-a716-446655440000","auth_token":"<opaque secret string>","ca_pin":"<64 lowercase hex — sha256 of the device-CA ROOT SPKI>"}
+{"session_id":"550e8400-e29b-41d4-a716-446655440000","auth_token":"<opaque secret string>","ca_pin":"<64 lowercase hex — sha256 of the device-CA ROOT SPKI>","perchpub_url":"https://api.perchpub.net"}
 ```
 
 | Field (wire name) | Type | Required | Meaning / rule |
@@ -44,6 +44,7 @@ itself.
 | `session_id` | string (canonical UUID) | **MUST** | Path param for `POST /api/v1/enrollment/confirm/{session_id}`. Parse as a canonical UUID; a bad value → decode fails. |
 | `auth_token` | string, non-empty | **MUST** | One-time bearer for `/confirm`; HMAC-verified server-side. MUST be present and non-empty. |
 | `ca_pin` | string, 64 lowercase hex | **MUST** | `SHA-256( SubjectPublicKeyInfo(DER) )` of the device-CA **root** certificate. The station's out-of-band commitment to the trust root (see §3). |
+| `perchpub_url` | string, absolute `https://` **origin** (scheme + host [+ port]), **no path, no trailing slash** | **SHOULD** (perchpub emits it) | The public **`:443` enrollment origin** the station enrolls against, e.g. `https://api.perchpub.net`. The station derives its `:8443` upload endpoint from it (switch the port) and validates the edge's TLS against **public / system trust** (wholly separate from `ca_pin`, which pins the *device* CA). It MUST be the canonical public origin whose edge certificate SAN matches. A station **MAY** use it to enroll with **zero pre-configuration**, but **MUST** tolerate its absence (an older perchpub) and MUST NOT hard-fail without it. |
 | *(any other field)* | — | MAY | **Silently ignored** — the station SHOULD NOT reject unknown fields (forward-compat). In particular `expires_at` MAY appear and MUST be ignored: perchpub enforces the TTL, not the station. |
 
 - Field **order is irrelevant** (JSON object) and whitespace is tolerated, but
@@ -59,10 +60,15 @@ itself.
 - **No `ca_chain_pem`.** The device-CA chain is **not** in the QR anymore. It is
   delivered in-band by `POST /confirm` (§3). The QR carries only the `ca_pin`
   commitment used to verify that chain.
-- **No `perchpub_url`.** The station reads the base URL from its own
-  `config.toml`, unchanged. A `perchpub_url` field MAY be present for humans but
-  the station **MUST NOT** depend on it.
 - **No keypair, no CSR.** The station generates those locally after decoding.
+
+> **`perchpub_url` is now carried in the QR (§1).** Earlier revisions of this
+> contract omitted it — the station read its enrollment base URL from its own
+> `config.toml`. perchpub now emits `perchpub_url` (sourced from its
+> `STATION_EDGE_URL` setting) so a station can enroll with **zero
+> pre-configuration**. This is **additive and backward-compatible**: a station
+> that does not read it silently ignores it, and a station that does read it
+> **MUST** still tolerate its absence (an older perchpub) rather than hard-fail.
 
 ---
 
@@ -155,9 +161,10 @@ rendered symbol as a **secret**:
 
 ```
 payload_bytes = utf8( compact_json({
-    "session_id": session_id,   // canonical UUID string
-    "auth_token": auth_token,   // one-time opaque secret
-    "ca_pin":     ca_pin,       // 64 lowercase hex = sha256(SPKI(DER)) of the device-CA ROOT
+    "session_id":   session_id,   // canonical UUID string
+    "auth_token":   auth_token,   // one-time opaque secret
+    "ca_pin":       ca_pin,       // 64 lowercase hex = sha256(SPKI(DER)) of the device-CA ROOT
+    "perchpub_url": perchpub_url, // public :443 enrollment origin, e.g. https://api.perchpub.net
 }) )
 qr = QR_encode(payload_bytes, mode=BYTE, ec_level=M_or_Q, quiet_zone>=4, one_symbol)
 render(qr)   // in-memory SVG/canvas on the page; PNG/JPEG only for a file export
@@ -165,17 +172,21 @@ render(qr)   // in-memory SVG/canvas on the page; PNG/JPEG only for a file expor
 
 `ca_pin` is produced by perchpub as `hex( sha256( SPKI_DER( root_cert ) ) )` for
 the cert at `STEP_CA_ROOT_CERT_PATH` — the same SPKI-SHA256 construction used
-for the per-station leaf pin. It is returned in the `POST /enrollment/create`
-response alongside `session_id`, `auth_token`, and `expires_at`.
+for the per-station leaf pin. `perchpub_url` is perchpub's `STATION_EDGE_URL`
+setting (per-deployment; the public `:443` station edge origin). Both are
+returned in the `POST /enrollment/create` response alongside `session_id`,
+`auth_token`, and `expires_at`.
 
 ---
 
 ## 7. Conformance tests
 
 - **Round-trip (generator side).** Build the QR, decode it with any standard QR
-  reader, parse the JSON, and assert `session_id` / `auth_token` / `ca_pin`
-  survive **byte-for-byte**. The decoded object MUST contain **exactly** those
-  three fields and MUST NOT contain a CA chain, keypair, or CSR.
+  reader, parse the JSON, and assert `session_id` / `auth_token` / `ca_pin` /
+  `perchpub_url` survive **byte-for-byte** (`perchpub_url` an absolute `https://`
+  origin — scheme + host, no path, no trailing slash). The decoded object MUST
+  contain **exactly** those four fields and MUST NOT contain a CA chain, keypair,
+  or CSR.
 - **Interop (end-to-end).** Run `POST /enrollment/create` (capture `ca_pin`),
   then a real `POST /enrollment/confirm`, parse the returned `ca_chain_pem`
   (intermediate + root), verify the `leaf → intermediate → root` path builds

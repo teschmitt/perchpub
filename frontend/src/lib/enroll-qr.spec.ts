@@ -7,6 +7,7 @@ const SESSION = {
 	session_id: '550e8400-e29b-41d4-a716-446655440000',
 	auth_token: 'aVeryLong_one-time_secret_token_urlsafe_xyz123',
 	ca_pin: 'a'.repeat(64),
+	perchpub_url: 'https://api.perchpub.example',
 	expires_at: '2026-07-01T12:05:00.000Z'
 };
 
@@ -47,13 +48,31 @@ function encodeAndDecode(session: typeof SESSION): string {
 }
 
 describe('buildEnrollQrPayload', () => {
-	it('encodes exactly the three perchstation contract fields, nothing else', () => {
+	it('encodes exactly the four perchstation contract fields, nothing else', () => {
 		const parsed = JSON.parse(buildEnrollQrPayload(SESSION));
-		expect(Object.keys(parsed).sort()).toEqual(['auth_token', 'ca_pin', 'session_id']);
-		// The QR carries a pin, never the chain / keypair / CSR / expiry.
+		expect(Object.keys(parsed).sort()).toEqual([
+			'auth_token',
+			'ca_pin',
+			'perchpub_url',
+			'session_id'
+		]);
+		// The QR carries a pin + the enrollment base URL, never the chain / keypair
+		// / CSR / expiry.
 		expect(parsed).not.toHaveProperty('ca_chain_pem');
 		expect(parsed).not.toHaveProperty('csr_pem');
 		expect(parsed).not.toHaveProperty('expires_at');
+	});
+
+	it('carries perchpub_url as an absolute https origin (scheme + host, no path/slash)', () => {
+		const { perchpub_url } = JSON.parse(buildEnrollQrPayload(SESSION));
+		expect(perchpub_url).toBe(SESSION.perchpub_url);
+		// An absolute URL with a scheme and host...
+		const url = new URL(perchpub_url);
+		expect(url.protocol).toBe('https:');
+		expect(url.host).not.toBe('');
+		// ...in origin form: no path, no trailing slash. A URL string equals its
+		// own `origin` iff it has no path and no trailing slash.
+		expect(perchpub_url).toBe(url.origin);
 	});
 
 	it('emits compact JSON (no whitespace) to conserve QR capacity', () => {
@@ -79,5 +98,6 @@ describe('enrollQrSegments', () => {
 		expect(parsed.session_id).toBe(SESSION.session_id);
 		expect(parsed.auth_token).toBe(SESSION.auth_token);
 		expect(parsed.ca_pin).toBe(SESSION.ca_pin);
+		expect(parsed.perchpub_url).toBe(SESSION.perchpub_url);
 	});
 });

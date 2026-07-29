@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -282,6 +283,38 @@ def test_create_returns_root_ca_pin(
     assert len(ca_pin) == 64
     assert ca_pin == ca_pin.lower()
     int(ca_pin, 16)  # is valid hex
+
+
+def test_create_returns_perchpub_url(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/create returns perchpub_url = the configured public station-edge origin.
+
+    It is emitted verbatim from settings.STATION_EDGE_URL and MUST be an absolute
+    https URL in origin form (scheme + host, no path, no trailing slash) — the
+    perchstation contract's zero-config enrollment base.
+    """
+    edge = "https://api.perchpub.example"
+    monkeypatch.setattr(settings, "STATION_EDGE_URL", edge)
+    _, headers = _operator(db, client)
+    r = client.post(
+        f"{settings.API_V1_STR}/enrollment/create",
+        headers=headers,
+        json={"latitude": 47.5, "longitude": 8.7},
+    )
+    assert r.status_code == 200, r.text
+    perchpub_url = r.json()["perchpub_url"]
+
+    # Equals the configured public base URL, verbatim.
+    assert perchpub_url == edge == settings.STATION_EDGE_URL
+
+    # Parses as an absolute URL with a scheme and host, and is origin-form:
+    # no path and no trailing slash (a URL equals its own origin iff both hold).
+    split = urlsplit(perchpub_url)
+    assert split.scheme == "https"
+    assert split.netloc
+    assert split.path == ""
+    assert not perchpub_url.endswith("/")
 
 
 def test_create_expires_at_uses_default_60s_ttl(

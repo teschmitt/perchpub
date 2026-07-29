@@ -41,6 +41,13 @@ class EnrollmentSession(SQLModel):
     # Lowercase-hex SHA-256(SPKI) of the device-CA root — the QR's out-of-band
     # integrity commitment the station verifies /confirm's chain against.
     ca_pin: str
+    # Public station-facing enrollment origin (the `:443` edge, origin form) the
+    # station talks to and derives its `:8443` upload endpoint from. Emitted
+    # verbatim into the enrollment QR as `perchpub_url` (perchstation contract),
+    # so a station enrolls with zero pre-configuration. Sourced from
+    # settings.STATION_EDGE_URL. Additive/backward-compatible: unknown to older
+    # stations, which ignore it.
+    perchpub_url: str
 
 
 class EnrollmentRequest(SQLModel):

@@ -11,6 +11,7 @@ const SESSION = {
 	session_id: '22222222-2222-2222-2222-222222222222',
 	auth_token: 'one-time-secret-token',
 	ca_pin: 'b'.repeat(64),
+	perchpub_url: 'https://api.perchpub.example',
 	expires_at: '2026-07-01T12:05:00.000Z'
 };
 
@@ -63,6 +64,7 @@ describe('enroll create action', () => {
 				session_id: SESSION.session_id,
 				auth_token: SESSION.auth_token,
 				ca_pin: SESSION.ca_pin,
+				perchpub_url: SESSION.perchpub_url,
 				expires_at: SESSION.expires_at
 			},
 			baseline: ['s-existing']

@@ -12,8 +12,15 @@
 		token,
 		sessionId,
 		caPin,
+		perchpubUrl,
 		expiresAt
-	}: { token: string; sessionId: string; caPin: string; expiresAt: string } = $props();
+	}: {
+		token: string;
+		sessionId: string;
+		caPin: string;
+		perchpubUrl: string;
+		expiresAt: string;
+	} = $props();
 
 	// Memory-only clock. Never persisted, never placed in a URL/query/store — the
 	// token lives only in this component's transient state for its one-time display.
@@ -24,15 +31,17 @@
 	let copied = $state<'token' | 'session' | null>(null);
 
 	// The scannable QR, rendered in-memory as SVG from the transient session
-	// values — the perchstation pairing payload {session_id, auth_token, ca_pin}.
-	// Never fetched from a token-bearing URL, never written to a store. EC level M
-	// buys robustness for the screen→feeder-camera path; the payload is tiny.
+	// values — the perchstation pairing payload {session_id, auth_token, ca_pin,
+	// perchpub_url}. Never fetched from a token-bearing URL, never written to a
+	// store. EC level M buys robustness for the screen→feeder-camera path; the
+	// payload is tiny.
 	let qrSvg = $state('');
 	$effect(() => {
 		const segments = enrollQrSegments({
 			session_id: sessionId,
 			auth_token: token,
-			ca_pin: caPin
+			ca_pin: caPin,
+			perchpub_url: perchpubUrl
 		});
 		let cancelled = false;
 		QRCode.toString(segments, { type: 'svg', errorCorrectionLevel: ENROLL_QR_EC_LEVEL, margin: 4 })

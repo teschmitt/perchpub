@@ -698,6 +698,8 @@ export interface components {
 			expires_at: string;
 			/** Ca Pin */
 			ca_pin: string;
+			/** Perchpub Url */
+			perchpub_url: string;
 		};
 		/**
 		 * EnrollmentSessionCreate

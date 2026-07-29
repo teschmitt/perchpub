@@ -8,6 +8,7 @@ from pydantic import (
     HttpUrl,
     PostgresDsn,
     computed_field,
+    field_validator,
     model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -44,6 +45,25 @@ class Settings(BaseSettings):
         return [str(origin).rstrip("/") for origin in self.BACKEND_CORS_ORIGINS] + [
             self.FRONTEND_HOST
         ]
+
+    # Public station-facing edge origin — the `:443` enrollment origin a station
+    # (Raspberry Pi) talks to, e.g. "https://api.perchpub.net". It is emitted
+    # verbatim to stations as `perchpub_url` in the enrollment QR and the
+    # `POST /enrollment/create` response, so a station can enroll with zero
+    # pre-configuration: it derives its `:8443` upload endpoint from this and
+    # validates the edge's TLS against public/system trust. It MUST therefore be
+    # the canonical public origin whose (Let's Encrypt) certificate SAN matches
+    # the edge — never an internal hostname, container name, or IP. Distinct from
+    # FRONTEND_HOST (the browser/dashboard origin). Stored in ORIGIN form (scheme
+    # + host [+ optional port]); any trailing slash is stripped. Required in
+    # staging/production (warns in local) — an unset value would ship an empty
+    # `perchpub_url` and break unattended enrollment fleet-wide.
+    STATION_EDGE_URL: str = ""
+
+    @field_validator("STATION_EDGE_URL", mode="after")
+    @classmethod
+    def _normalize_station_edge_url(cls, v: str) -> str:
+        return v.rstrip("/")
 
     PROJECT_NAME: str
     SENTRY_DSN: HttpUrl | None = None
@@ -199,6 +219,9 @@ class Settings(BaseSettings):
             self.ENROLLMENT_HMAC_KEY_HEX,
             hex_length=64,
         )
+        # Non-secret, but must not stay empty in a real deployment: an empty
+        # value ships a blank `perchpub_url` to stations (see STATION_EDGE_URL).
+        self._check_required_secret("STATION_EDGE_URL", self.STATION_EDGE_URL)
 
         return self
 

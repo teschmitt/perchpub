@@ -98,6 +98,22 @@ Because there is no operator-facing enrollment poll or status endpoint, the wiza
 - **WHEN** the same enrollment flow later completes `POST /enrollment/confirm/{session_id}` and receives a signed leaf plus `ca_chain_pem`
 - **THEN** the leaf chains `leaf → intermediate → root` through the returned chain, and the `SHA-256(SPKI(DER))` of that root equals the `ca_pin` returned at create time
 
+### Requirement: Enrollment advertises the public station edge URL
+
+`POST /api/v1/enrollment/create` SHALL include in its response — and the enrollment QR SHALL carry — a `perchpub_url`: the public station-facing enrollment origin (the `:443` edge) a station talks to and derives its `:8443` upload endpoint from. The value SHALL be sourced from a per-deployment setting (`settings.STATION_EDGE_URL`) and emitted verbatim as an absolute `https://` URL in **origin form** — scheme + host [+ optional port], with no path and no trailing slash — so a station can enroll with zero pre-configuration. It SHALL be the canonical public origin whose edge certificate SAN matches, never an internal hostname, container name, or IP. Adding `perchpub_url` SHALL be additive: `session_id`, `auth_token`, and `ca_pin` retain their meaning and a station that does not read `perchpub_url` is unaffected. `settings.STATION_EDGE_URL` SHALL be required in staging/production (an unset value SHALL fail fast at settings load) and SHALL be normalized to strip any trailing slash.
+
+#### Scenario: create returns the public station edge origin
+- **WHEN** a logged-in operator submits the enrollment form with a valid latitude and longitude
+- **THEN** the response includes `perchpub_url` equal to `settings.STATION_EDGE_URL`, an absolute `https://` URL with a scheme and host and no trailing slash
+
+#### Scenario: the QR carries the same enrollment origin
+- **WHEN** an enrollment session is created and its QR is rendered
+- **THEN** the decoded QR's `perchpub_url` is byte-for-byte equal to the `perchpub_url` returned by `POST /enrollment/create`
+
+#### Scenario: an unset station edge URL fails fast in production
+- **WHEN** the backend loads settings in `production` with `STATION_EDGE_URL` unset
+- **THEN** settings validation raises rather than serving an empty `perchpub_url`
+
 ### Requirement: Enrollment confirm returns the full device-CA chain
 
 `POST /api/v1/enrollment/confirm/{session_id}` SHALL return, in `ca_chain_pem`, the full device-CA chain — the issuing **intermediate** followed by the device-CA **root** — so that a station can build the path from its issued leaf to the root and verify the root against the `ca_pin` carried in the QR. step-ca returns the intermediate; the backend SHALL append the root from `settings.STEP_CA_ROOT_CERT_PATH`. This change SHALL NOT alter CSR signing or the mTLS entrypoint.
@@ -108,15 +124,15 @@ Because there is no operator-facing enrollment poll or status endpoint, the wiza
 
 ### Requirement: Enrollment QR encodes the perchstation pairing payload
 
-The enrollment wizard SHALL encode the enrollment credential as a **single, non-animated, byte-mode QR** symbol with a quiet zone, whose data segment is the raw UTF-8 bytes of one compact JSON object with exactly the fields `session_id` (canonical UUID), `auth_token` (the one-time cleartext token), and `ca_pin` (as defined by "Enrollment create returns the device-CA pin"), matching the perchstation enrollment-QR contract. The QR SHALL NOT carry the device-CA chain, a keypair, or a CSR. The wizard SHALL be able to decode its own emitted symbol back to the three fields.
+The enrollment wizard SHALL encode the enrollment credential as a **single, non-animated, byte-mode QR** symbol with a quiet zone, whose data segment is the raw UTF-8 bytes of one compact JSON object with exactly the fields `session_id` (canonical UUID), `auth_token` (the one-time cleartext token), `ca_pin` (as defined by "Enrollment create returns the device-CA pin"), and `perchpub_url` (as defined by "Enrollment advertises the public station edge URL"), matching the perchstation enrollment-QR contract. The QR SHALL NOT carry the device-CA chain, a keypair, or a CSR. The wizard SHALL be able to decode its own emitted symbol back to the four fields.
 
-#### Scenario: the QR encodes the three contract fields
+#### Scenario: the QR encodes the four contract fields
 - **WHEN** an enrollment session is created and its QR is rendered
-- **THEN** decoding the QR yields a single JSON object containing exactly `session_id`, `auth_token`, and `ca_pin`, and no device-CA chain, keypair, or CSR
+- **THEN** decoding the QR yields a single JSON object containing exactly `session_id`, `auth_token`, `ca_pin`, and `perchpub_url`, and no device-CA chain, keypair, or CSR
 
 #### Scenario: the emitted symbol round-trips
 - **WHEN** the wizard encodes the payload and the symbol is decoded by a standard QR reader
-- **THEN** the decoded `session_id`, `auth_token`, and `ca_pin` are byte-for-byte equal to the values the wizard encoded
+- **THEN** the decoded `session_id`, `auth_token`, `ca_pin`, and `perchpub_url` are byte-for-byte equal to the values the wizard encoded
 
 ### Requirement: Enrollment carries the operator's privacy choice onto the station
 

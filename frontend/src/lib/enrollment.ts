@@ -9,24 +9,35 @@ export interface EnrollSession {
 	auth_token: string;
 	/** Device-CA root SPKI pin (64-hex) the station verifies `/confirm`'s chain against. */
 	ca_pin: string;
+	/**
+	 * Public station-facing enrollment origin (the `:443` edge, e.g.
+	 * `https://api.perchpub.net`) the station talks to and derives its `:8443`
+	 * upload endpoint from. Sourced from the backend `STATION_EDGE_URL` so a
+	 * station enrolls with zero pre-configuration.
+	 */
+	perchpub_url: string;
 	expires_at: string;
 }
 
 /**
- * The compact JSON the enrollment QR encodes — exactly the three perchstation
- * pairing-contract fields (`session_id`, `auth_token`, `ca_pin`), in contract
- * order, as one byte-mode symbol. `expires_at` is intentionally omitted: perchpub
- * enforces the TTL, and the station ignores it. No chain, keypair, or CSR.
+ * The compact JSON the enrollment QR encodes — the four perchstation
+ * pairing-contract fields (`session_id`, `auth_token`, `ca_pin`, `perchpub_url`),
+ * with the original three in contract order, as one byte-mode symbol.
+ * `perchpub_url` is the `:443` enrollment origin the station enrolls against
+ * (additive; older stations ignore it). `expires_at` is intentionally omitted:
+ * perchpub enforces the TTL, and the station ignores it. No chain, keypair, or CSR.
  */
 export function buildEnrollQrPayload(session: {
 	session_id: string;
 	auth_token: string;
 	ca_pin: string;
+	perchpub_url: string;
 }): string {
 	return JSON.stringify({
 		session_id: session.session_id,
 		auth_token: session.auth_token,
-		ca_pin: session.ca_pin
+		ca_pin: session.ca_pin,
+		perchpub_url: session.perchpub_url
 	});
 }
 
@@ -45,6 +56,7 @@ export function enrollQrSegments(session: {
 	session_id: string;
 	auth_token: string;
 	ca_pin: string;
+	perchpub_url: string;
 }): { data: Uint8Array; mode: 'byte' }[] {
 	return [{ data: new TextEncoder().encode(buildEnrollQrPayload(session)), mode: 'byte' }];
 }
