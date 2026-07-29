@@ -130,4 +130,4 @@ Required env vars to boot (no defaults in [backend/app/core/config.py](backend/a
   - **ActivityPub publishing** is the last unbuilt headline capability — no module under `backend/app/` exists for it yet; start it as an OpenSpec change.
   - `dev/replace-tf-with-litert` (swap TensorFlow for LiteRT to cut CI runner disk) is unmerged and ~82 commits behind `main` — rebase or redo before landing.
   - **No live prod deployment has ever run** — the Terraform / Traefik / OVH story is fully in-tree ([deployment.md](deployment.md)) but has not been stood up.
-  - The Codeberg branch `origin/dev/complete-mtls-authentication` is a dead leftover, safe to delete.
+  - Origin moved from Codeberg to **GitHub** (`github.com/teschmitt/perchpub`); the old Codeberg-only `dev/complete-mtls-authentication` leftover branch did not come across. CI now runs on **GitHub Actions** ([.github/workflows/](.github/workflows/)), not Forgejo Actions.

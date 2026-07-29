@@ -26,7 +26,7 @@ Terraform owns the infrastructure *around* the app; the Compose topology (backen
 | D3 | Prod secrets | **TF-generated, rendered on host** via cloud-init `templatefile` | Removes live secrets from git; rotates the leaked ones; secrets live only in (gitignored) state + on the box. |
 | D4 | Station mTLS | **Integrate Traefik into the Compose stack** and build the mTLS entrypoint now | Single host → Traefik can mount step-ca's device root CA over the shared volume. Backend is already mTLS-ready (§7). |
 | D5 | TF state | **Local, gitignored** | Solo, early-stage. Migratable to an OVH S3 backend later. |
-| D6 | Image delivery | **cloud-init clones the repo and builds on the box** (`docker compose … up -d --build`) | No registry to operate; the repo is public on Codeberg. Registry/CI delivery deferred. |
+| D6 | Image delivery | **cloud-init clones the repo and builds on the box** (`docker compose … up -d --build`) | No registry to operate; the repo is public on GitHub. Registry/CI delivery deferred. |
 | D7 | OVH region | Default **`GRA`** (Gravelines, FR); a tfvars knob | EU locality. One variable; trivially changed to `DE`/`SBG`/`WAW`. |
 | D8 | S3 bucket type | **`standard`** (not `high_performance`) | `high_performance` uses the `EXPRESS_ONEZONE` storage class requiring `put-object` semantics, which can break the Minio client's default upload path. |
 
