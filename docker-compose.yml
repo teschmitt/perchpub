@@ -1,7 +1,7 @@
 services:
 
   db:
-    image: postgres:17
+    image: postgres:18
     restart: always
     # `$$POSTGRES_USER` / `$$POSTGRES_DB` resolve at container runtime from
     # env_file injection, not from compose-parse-time substitution — keeps
