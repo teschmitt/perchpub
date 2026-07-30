@@ -148,10 +148,10 @@ rendered symbol as a **secret**:
 - Serve any response that carries the token with **`Cache-Control: no-store`**;
   keep it out of shared / CDN caches.
 - The credential is protected by three parametric defenses, all server-side:
-  **single-use** (`claimed`), **≤3 attempts**, and a **short TTL**
-  (`settings.ENROLLMENT_TTL_SECONDS`, **default 60 s**; raise via env for a
-  demo). A photograph of the on-screen QR taken within the TTL is a valid
-  credential — the short window plus single-use (the live device typically
+  **single-use** (`claimed`), **≤3 attempts**, and a **bounded TTL**
+  (`settings.ENROLLMENT_TTL_SECONDS`, **default 600 s / 10 min**; lower via env
+  to shrink the window). A photograph of the on-screen QR taken within the TTL
+  is a valid credential — the bounded window plus single-use (the live device typically
   redeems first, locking out a relayed photo with `Already enrolled`) are the
   mitigations; a static QR cannot itself distinguish a live scan from a photo.
 

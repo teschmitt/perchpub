@@ -83,7 +83,7 @@ export interface EnrollResult {
  * `settings.ENROLLMENT_TTL_SECONDS` default. The live countdown derives purely
  * from `expires_at`, so this is a reference/default, not a hardcoded window.
  */
-export const ENROLLMENT_TTL_SECONDS = 60;
+export const ENROLLMENT_TTL_SECONDS = 600; // 10 minutes
 
 /**
  * Whole seconds remaining until `expiresAt` (ISO date-time), clamped at zero.

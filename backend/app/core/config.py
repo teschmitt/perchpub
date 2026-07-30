@@ -75,10 +75,11 @@ class Settings(BaseSettings):
 
     ENROLLMENT_HMAC_KEY_HEX: str = ""
 
-    # One-time enrollment-token TTL. QR-based enrollment is near-instant, so a
-    # short window shrinks the replay surface of a photographed QR (a
-    # cross-tenant risk on a public service). Raise via env for a fumbly demo.
-    ENROLLMENT_TTL_SECONDS: int = 60
+    # One-time enrollment-token TTL. A photographed QR is replayable within the
+    # window (a cross-tenant risk on a public service), so keep it bounded — but
+    # 10 minutes gives an operator room to carry the QR to the station and pair
+    # by hand without racing a countdown. Lower via env to shrink the window.
+    ENROLLMENT_TTL_SECONDS: int = 600  # 10 minutes
 
     # Enrollment audit trail (design D3). Rows carry a full source IP for
     # incident reconstruction; retention bounds the PII exposure. A nightly

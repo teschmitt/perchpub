@@ -317,19 +317,19 @@ def test_create_returns_perchpub_url(
     assert not perchpub_url.endswith("/")
 
 
-def test_create_expires_at_uses_default_60s_ttl(
+def test_create_expires_at_uses_default_10min_ttl(
     client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The default enrollment window is 60 s, not the old hardcoded 300 s."""
+    """The default enrollment window is 600 s (10 min), not the old 60 s."""
     # Assert the *code* default, not the live singleton: host test runs source
-    # .env.dev (which widens the dev TTL), so pin the window to 60 s here.
-    assert type(settings).model_fields["ENROLLMENT_TTL_SECONDS"].default == 60
-    monkeypatch.setattr(settings, "ENROLLMENT_TTL_SECONDS", 60)
+    # .env.dev (which may override the TTL), so pin the window to 600 s here.
+    assert type(settings).model_fields["ENROLLMENT_TTL_SECONDS"].default == 600
+    monkeypatch.setattr(settings, "ENROLLMENT_TTL_SECONDS", 600)
     _, headers = _operator(db, client)
     before = datetime.now(timezone.utc)
     enrollment = _create_session(client, headers)
     ttl = (enrollment.expires_at - before).total_seconds()
-    assert 55 <= ttl <= 65, ttl
+    assert 595 <= ttl <= 605, ttl
 
 
 def test_create_expires_at_honors_configured_ttl(

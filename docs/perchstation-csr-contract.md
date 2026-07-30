@@ -70,7 +70,7 @@ The station builds a PKCS#10 CertificationRequest. Normative rules:
 The station performs **only** the *confirm* step. The operator/QR tooling performs `create`; the station receives `session_id` + `auth_token` out-of-band via the QR.
 
 ### 4.1 Session constraints (from the QR / perchpub)
-- The session is **single-use**, has a **short TTL** (`settings.ENROLLMENT_TTL_SECONDS`, **default 60 s** — raise via env for a fumbly demo), and allows **at most 3 attempts** (`MAX_ENROLLMENT_ATTEMPTS=3` in `backend/app/api/routes/enrollment.py`). Because the window is short, the station **MUST** decode → build CSR → `confirm` promptly.
+- The session is **single-use**, has a **bounded TTL** (`settings.ENROLLMENT_TTL_SECONDS`, **default 600 s / 10 min** — lower via env to shrink the window), and allows **at most 3 attempts** (`MAX_ENROLLMENT_ATTEMPTS=3` in `backend/app/api/routes/enrollment.py`). Because the window is bounded, the station **MUST** decode → build CSR → `confirm` promptly.
 - The station **MUST** generate its keypair+CSR and POST `confirm` promptly after decoding the QR. Generating the keypair does **not** consume the session; only `confirm` does.
 
 ### 4.2 Request
