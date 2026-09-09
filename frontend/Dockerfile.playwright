@@ -2,7 +2,7 @@
 # Playwright `webServer` can boot it (`node build`); tests run against it inside
 # the compose stack (docker-compose.override.yml `playwright` service).
 # Keep the tag aligned with the @playwright/test version in package.json.
-FROM mcr.microsoft.com/playwright:v1.61.1-noble
+FROM mcr.microsoft.com/playwright:v1.63.0-noble
 WORKDIR /app
 ENV CI=true
 COPY package*.json /app/
